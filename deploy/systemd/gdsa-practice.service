@@ -6,10 +6,10 @@ After=network.target
 Type=simple
 User=gdsa-practice
 Group=gdsa-practice
-WorkingDirectory=/opt/gdsa-practice/current/backend
-EnvironmentFile=/etc/gdsa-practice/gdsa-practice.env
+WorkingDirectory=/opt/security-study/current/backend
+EnvironmentFile=/etc/security-study/gdsa-practice.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/opt/gdsa-practice/venv/bin/gunicorn --config /opt/gdsa-practice/current/backend/gunicorn.conf.py
+ExecStart=/opt/security-study/venv/bin/gunicorn --config /opt/security-study/current/backend/gunicorn.conf.py
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
@@ -37,7 +37,8 @@ RestrictRealtime=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
-ReadOnlyPaths=/opt/gdsa-practice
+ReadOnlyPaths=/opt/security-study
+ReadWritePaths=/var/lib/gdsa-practice
 
 [Install]
 WantedBy=multi-user.target

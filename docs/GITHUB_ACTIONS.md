@@ -2,50 +2,66 @@
 
 The repository has two workflows:
 
-- `.github/workflows/ci.yml` runs on pushes and pull requests. It validates
-  Python syntax, JSON/JSONL content, required files, and pinned dependencies.
-- `.github/workflows/deploy-ec2.yml` runs after the CI gate for pushes to
-  `main`, or manually through **Actions → Deploy to EC2 → Run workflow**.
+- `.github/workflows/ci.yml` validates the repository on pushes and pull
+  requests.
+- `.github/workflows/deploy-ec2.yml` runs after CI for pushes to `main`, or
+  manually through **Actions → Deploy to EC2 → Run workflow**.
 
-The deployment workflow creates a release archive from the committed tree,
-uploads it over SSH, and sends `deploy/scripts/deploy-release.sh` to the server.
-The server keeps immutable releases under `/opt/gdsa-practice/releases/` and
-switches `/opt/gdsa-practice/current` atomically. The learner database,
-question database, RAG index, virtual environment, and environment file remain
-outside release directories.
+The deployment workflow uploads an archive of the committed tree. The server
+keeps immutable releases under `/opt/security-study/releases` and atomically
+switches `/opt/security-study/current`. Runtime data, the virtual environment,
+the learner database, and the populated environment file stay outside releases.
+
+## Safety gate before secrets
+
+Do not configure any GitHub EC2 secret until all of these are validated:
+
+- the checked-in paths match the active `/opt/security-study` layout;
+- the checked-in systemd unit is reconciled with the active unit and override;
+- active Nginx-only cookie/security customizations have a preserve-and-merge
+  plan;
+- the ordinary `/opt/security-study/current` directory passes the backend and
+  frontend preflight; and
+- the one-time adoption and restoration procedure in
+  `docs/EC2_DEPLOYMENT.md` has been reviewed.
+
+The backup service and timer are currently absent. CI/CD readiness does not
+prove that backups are active.
 
 ## Required GitHub configuration
 
-Add these as repository or `production` environment secrets:
+After the safety gate is complete, add these as repository or `production`
+environment secrets:
 
 | Secret | Value |
 |---|---|
 | `EC2_HOST` | EC2 DNS name or IP address |
-| `EC2_USER` | SSH deployment user |
-| `EC2_SSH_PRIVATE_KEY` | Private key matching the EC2 user’s `authorized_keys` |
-| `EC2_KNOWN_HOSTS` | Verified `known_hosts` entry for the EC2 host |
+| `EC2_USER` | SSH deployment user (`ubuntu` on the verified host) |
+| `EC2_SSH_PRIVATE_KEY` | Private key matching that user |
+| `EC2_KNOWN_HOSTS` | Independently verified host-key entry |
 | `EC2_SSH_PORT` | Optional SSH port; defaults to `22` |
 
-The deployment contract uses `/opt/gdsa-practice`, matching the checked-in
-systemd and Nginx templates. If the EC2 instance uses another root, update
-those templates and the deployment script together before enabling CI/CD.
-
-Generate `EC2_KNOWN_HOSTS` from a trusted administrative machine and verify the
-fingerprint before saving it as a secret. Do not use `StrictHostKeyChecking=no`
-or place the private key in the repository.
+Never commit the key, disable strict host-key checking, or expose secret
+values.
 
 ## Deployment behavior
 
-The remote script refuses to deploy unless the server already has:
+The remote script requires:
 
-- `/etc/gdsa-practice/gdsa-practice.env`;
-- `/opt/gdsa-practice/venv/bin/gunicorn`;
-- `/opt/gdsa-practice/data/gdsa-practice.sqlite3`; and
-- `/opt/gdsa-practice/data/projects_index.jsonl`.
+- `/etc/security-study/gdsa-practice.env`;
+- `/opt/security-study/venv/bin/gunicorn`;
+- `/opt/security-study/data/gdsa-practice.sqlite3`; and
+- `/opt/security-study/data/projects_index.jsonl`.
 
-After the release is activated, systemd is restarted and both direct Gunicorn
-and Nginx health endpoints are checked. If restart or health verification
-fails, the previous `current` symlink is restored when one exists.
+An automatic push deployment never opts into migration. While `current` is an
+ordinary directory it will fail safely. For the one-time conversion, manually
+dispatch the workflow with `adopt_existing_current` enabled. The script
+validates the existing backend and frontend, preserves the entire directory as
+a baseline release, activates the new release as a symlink, and restores the
+ordinary directory if activation, restart, or health checks fail.
 
-The workflow does not import question banks or rebuild the RAG index. Those are
-controlled data-release operations and must be provisioned separately.
+After successful adoption, leave the input disabled. Normal deployments switch
+the `current` symlink atomically, restart `gdsa-practice.service`, check both
+Gunicorn and Nginx health endpoints, and restore the previous symlink on
+failure. Deployments do not import question banks, rebuild the RAG index, or
+modify the learner database.

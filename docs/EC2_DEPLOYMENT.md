@@ -1,123 +1,152 @@
 # EC2 bootstrap and operations
 
-This repository assumes an Ubuntu EC2 instance with Nginx in front of Gunicorn.
-The API binds only to `127.0.0.1:8765`; the public web server serves the static
-frontend and proxies `/health`, `/api/`, and `/auth/` to Gunicorn.
+This repository targets the existing Ubuntu EC2 deployment at
+`/opt/security-study`. Nginx serves the frontend and proxies `/health`,
+`/api/`, and `/auth/` to Gunicorn at `127.0.0.1:8765`. The service remains
+`gdsa-practice.service` and runs as `gdsa-practice`.
 
-The GitHub workflow handles later application releases. One-time server
-provisioning remains a deliberate administrative step.
+Do not configure the GitHub EC2 secrets yet. First validate this checked-in
+contract and the one-time `current` migration procedure against the instance.
+Server provisioning and migration are deliberate administrative operations;
+they are not performed by updating this repository.
 
-## 1. Prepare the server
+## Runtime contract
 
-Install the operating-system packages and create the service account:
-
-```bash
-sudo apt-get update
-sudo apt-get install --yes nginx python3 python3-venv curl
-sudo useradd --system --home-dir /opt/gdsa-practice --shell /usr/sbin/nologin gdsa-practice
-sudo install -d -o root -g root -m 0755 /opt/gdsa-practice/releases
-sudo install -d -o root -g gdsa-practice -m 0750 /opt/gdsa-practice/data
-sudo install -d -o root -g root -m 0750 /etc/gdsa-practice
-sudo install -d -o root -g root -m 0750 /var/backups/gdsa-practice
-sudo install -d -o root -g root -m 0750 /var/lib/gdsa-practice
-sudo python3 -m venv /opt/gdsa-practice/venv
-```
-
-If the user already exists, verify that it is a locked system account using
-`/usr/sbin/nologin` before continuing.
-
-## 2. Install the runtime data
-
-The Git repository contains application code and immutable study content. It
-does not contain the runtime question database or the project-aware RAG index.
-Install validated copies at:
+The required paths are:
 
 ```text
-/opt/gdsa-practice/data/gdsa-practice.sqlite3
-/opt/gdsa-practice/data/projects_index.jsonl
+/opt/security-study/current
+/opt/security-study/releases
+/opt/security-study/venv
+/opt/security-study/data/gdsa-practice.sqlite3
+/opt/security-study/data/projects_index.jsonl
+/etc/security-study/gdsa-practice.env
+/var/lib/gdsa-practice/learner.sqlite3
 ```
 
-Set permissions so the service can read them without making them writable:
+Application releases never contain or replace either SQLite database, the RAG
+index, the virtual environment, or the populated environment file. The
+application tree is read-only to the service; learner state remains writable
+under `/var/lib/gdsa-practice` through `StateDirectory=gdsa-practice`.
+
+For a new host, create the runtime account and directories with the same
+ownership and permissions as the active deployment:
 
 ```bash
-sudo chown root:gdsa-practice /opt/gdsa-practice/data/gdsa-practice.sqlite3
-sudo chmod 0640 /opt/gdsa-practice/data/gdsa-practice.sqlite3
-sudo chown root:gdsa-practice /opt/gdsa-practice/data/projects_index.jsonl
-sudo chmod 0640 /opt/gdsa-practice/data/projects_index.jsonl
+sudo useradd --system --home-dir /opt/security-study --shell /usr/sbin/nologin gdsa-practice
+sudo install -d -o root -g root -m 0755 /opt/security-study/releases
+sudo install -d -o root -g gdsa-practice -m 0750 /opt/security-study/data
+sudo install -d -o root -g root -m 0750 /etc/security-study
+sudo install -d -o root -g root -m 0750 /var/lib/gdsa-practice
+sudo python3 -m venv /opt/security-study/venv
 ```
 
-Do not upload source PDFs, authoring directories, SSH keys, or populated
-environment files as part of an application release.
+If the account or directories already exist, inspect them instead of recreating
+or changing them blindly.
 
-## 3. Configure secrets and system services
+## Runtime data and environment
 
-Copy `deploy/environment/gdsa-practice.env.example` to the server and set the
-Google OAuth values and public HTTPS origin:
+Install validated, read-only runtime data at:
 
-```bash
-sudo install -o root -g gdsa-practice -m 0640 \
-  deploy/environment/gdsa-practice.env.example \
-  /etc/gdsa-practice/gdsa-practice.env
-sudoedit /etc/gdsa-practice/gdsa-practice.env
+```text
+/opt/security-study/data/gdsa-practice.sqlite3
+/opt/security-study/data/projects_index.jsonl
 ```
 
-Install the service and Nginx configuration from a checked-out or securely
-transferred copy of this repository:
+The populated environment file belongs at
+`/etc/security-study/gdsa-practice.env`, owned by
+`root:gdsa-practice` with mode `0640`. Do not replace an existing populated
+file with the example and never commit its values. Preserve
+`GDSA_LEARNER_DATABASE_PATH=/var/lib/gdsa-practice/learner.sqlite3`.
 
-```bash
-sudo install -o root -g root -m 0644 \
-  deploy/systemd/gdsa-practice.service \
-  /etc/systemd/system/gdsa-practice.service
-sudo install -o root -g root -m 0644 \
-  deploy/systemd/gdsa-practice-backup.service \
-  /etc/systemd/system/gdsa-practice-backup.service
-sudo install -o root -g root -m 0644 \
-  deploy/systemd/gdsa-practice-backup.timer \
-  /etc/systemd/system/gdsa-practice-backup.timer
-sudo install -o root -g root -m 0644 \
-  deploy/nginx/gdsa-practice.sites-available.conf \
-  /etc/nginx/sites-available/gdsa-practice
-sudo ln -sfn /etc/nginx/sites-available/gdsa-practice \
-  /etc/nginx/sites-enabled/gdsa-practice
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t
-sudo systemctl daemon-reload
-sudo systemctl enable gdsa-practice.service
-sudo systemctl enable --now gdsa-practice-backup.timer
-```
+## Reconcile systemd and Nginx
 
-The Nginx configuration includes `/etc/nginx/proxy_params`, which is present on
-the standard Ubuntu Nginx package. Add HTTPS before exposing the service to an
-untrusted network; Google login requires the production HTTPS origin configured
-in the environment file.
+The checked-in systemd unit matches the active base/effective override contract:
 
-## 4. Run the first release
+- `User=gdsa-practice` and `Group=gdsa-practice`;
+- `StateDirectory=gdsa-practice`;
+- `ReadOnlyPaths=/opt/security-study`;
+- working directory and Gunicorn paths under `/opt/security-study`; and
+- environment file `/etc/security-study/gdsa-practice.env`.
 
-After the server is provisioned and the GitHub secrets are configured, merge or
-push a commit to `main`. The deployment workflow will refuse to proceed until
-the runtime prerequisites above exist. Verify the result on the instance:
+Before installing it, compare it with both
+`/etc/systemd/system/gdsa-practice.service` and
+`/etc/systemd/system/gdsa-practice.service.d/override.conf`. Preserve any
+additional active hardening that does not conflict with this contract.
+
+The active Nginx source is
+`/etc/nginx/sites-available/gdsa-practice.sites-available.conf`, enabled by
+`/etc/nginx/sites-enabled/gdsa-practice`. Do not blindly overwrite the active
+source with the repository template: it may contain cookie or security
+customizations that were not captured during inspection. Compare and merge the
+required document-root change to
+`/opt/security-study/current/frontend` while preserving the active routes,
+headers, and cookie/security behavior. Validate the merged configuration with
+`sudo nginx -t` before any reload.
+
+The checked-in backup service and timer are templates only.
+`gdsa-practice-backup.service` and its timer are not currently installed or
+active on the verified EC2 host. Do not claim backup coverage or enable the
+timer until the service, destination, retention, and a restore test have been
+separately reviewed.
+
+## One-time adoption of the ordinary current directory
+
+The verified host currently has an ordinary
+`/opt/security-study/current` directory, including manual `backend-bak`,
+`frontend-bak`, and `content-bak` directories. Normal deployments refuse to
+replace it. After the contract and rollback procedure have been validated,
+configure the GitHub secrets and manually run **Deploy to EC2** with
+`adopt_existing_current` enabled exactly once.
+
+The deployment script then:
+
+1. verifies that `current/backend/practice_api.py` and
+   `current/frontend/index.html` exist;
+2. builds the new immutable release under
+   `/opt/security-study/releases/<release-id>`;
+3. moves the complete ordinary `current` directory, including its backup
+   directories, intact to
+   `/opt/security-study/releases/baseline-before-<release-id>`;
+4. atomically activates the new release through the `current` symlink;
+5. restarts `gdsa-practice.service`; and
+6. checks both `http://127.0.0.1:8765/health` and
+   `http://127.0.0.1/health`.
+
+If activation, restart, or either health check fails, the new `current`
+symlink is removed and the baseline directory is moved back to the original
+ordinary `/opt/security-study/current` path. After a restart or health failure,
+the script also attempts to restart the restored application. The failed new
+release remains in `releases` for diagnosis; runtime databases are untouched.
+
+On success, `current` is a symlink to the new immutable release and the
+baseline remains in `releases`. Do not enable the adoption input again.
+Later deployments atomically switch the symlink, run both health checks, and
+restore the previous release symlink on failure.
+
+## Verification and manual rollback
+
+After an authorized deployment, verify:
 
 ```bash
 sudo systemctl status gdsa-practice.service --no-pager
 curl --fail --silent --show-error http://127.0.0.1:8765/health
 curl --fail --silent --show-error http://127.0.0.1/health
 sudo ss -ltnp | grep -E ':(80|8765)\b'
+readlink -f /opt/security-study/current
 ```
 
-Port `8765` should be bound only to `127.0.0.1`. Do not add it to the EC2
-security group. Restrict SSH to an administrative IP range and add HTTPS only
-after TLS and access-control decisions are complete.
+Port `8765` must remain bound only to `127.0.0.1`.
 
-## 5. Roll back an application release
-
-The deployment script keeps old releases. To restore one manually:
+To roll back a later symlink-based release:
 
 ```bash
-PREVIOUS_RELEASE=/opt/gdsa-practice/releases/<verified-release-id>
-sudo test -d "$PREVIOUS_RELEASE/backend"
-sudo ln -s "$PREVIOUS_RELEASE" /opt/gdsa-practice/current.next
-sudo mv -Tf /opt/gdsa-practice/current.next /opt/gdsa-practice/current
+PREVIOUS_RELEASE=/opt/security-study/releases/<verified-release-id>
+sudo test -f "$PREVIOUS_RELEASE/backend/practice_api.py"
+sudo test -f "$PREVIOUS_RELEASE/frontend/index.html"
+sudo ln -s "$PREVIOUS_RELEASE" /opt/security-study/current.next
+sudo mv -Tf /opt/security-study/current.next /opt/security-study/current
 sudo systemctl restart gdsa-practice.service
 ```
 
-The release rollback does not modify either SQLite database.
+Rollback does not modify either SQLite database.

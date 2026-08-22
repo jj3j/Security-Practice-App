@@ -12,7 +12,7 @@ the exact callback URL:
 https://<public-host>/auth/callback
 ```
 
-Set these values in `/etc/gdsa-practice/gdsa-practice.env` on the EC2 instance:
+Set these values in `/etc/security-study/gdsa-practice.env` on the EC2 instance:
 
 ```text
 GDSA_PUBLIC_BASE_URL=https://<public-host>
@@ -31,16 +31,16 @@ The first sign-in is recorded as pending and is not automatically approved:
 2. On the server, list the pending identity:
 
    ```bash
-   sudo -u gdsa-practice /opt/gdsa-practice/venv/bin/python \
-     /opt/gdsa-practice/current/backend/learner_admin.py \
+   sudo -u gdsa-practice /opt/security-study/venv/bin/python \
+     /opt/security-study/current/backend/learner_admin.py \
      --database /var/lib/gdsa-practice/learner.sqlite3 pending
    ```
 
 3. Approve the exact issuer and subject as an owner:
 
    ```bash
-   sudo -u gdsa-practice /opt/gdsa-practice/venv/bin/python \
-     /opt/gdsa-practice/current/backend/learner_admin.py \
+   sudo -u gdsa-practice /opt/security-study/venv/bin/python \
+     /opt/security-study/current/backend/learner_admin.py \
      --database /var/lib/gdsa-practice/learner.sqlite3 approve \
      --issuer "https://accounts.google.com" \
      --subject "<exact-pending-subject>" \

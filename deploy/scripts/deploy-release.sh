@@ -6,16 +6,22 @@ if [[ "${EUID}" -ne 0 ]]; then
     exit 1
 fi
 
+adopt_existing_current=false
+if [[ "${1:-}" == "--adopt-existing-current" ]]; then
+    adopt_existing_current=true
+    shift
+fi
+
 if [[ "$#" -ne 2 ]]; then
-    echo "Usage: deploy-release.sh ARCHIVE RELEASE_ID" >&2
+    echo "Usage: deploy-release.sh [--adopt-existing-current] ARCHIVE RELEASE_ID" >&2
     exit 2
 fi
 
 readonly ARCHIVE="$1"
 readonly RELEASE_ID="$2"
-readonly DEPLOY_ROOT="/opt/gdsa-practice"
+readonly DEPLOY_ROOT="/opt/security-study"
 readonly SERVICE_NAME="gdsa-practice.service"
-readonly ENV_FILE="/etc/gdsa-practice/gdsa-practice.env"
+readonly ENV_FILE="/etc/security-study/gdsa-practice.env"
 readonly RELEASES_DIR="${DEPLOY_ROOT}/releases"
 readonly CURRENT_LINK="${DEPLOY_ROOT}/current"
 readonly VENV_DIR="${DEPLOY_ROOT}/venv"
@@ -37,10 +43,37 @@ case "$ARCHIVE" in
     *) die "archive must be a release archive under /tmp" ;;
 esac
 [[ -f "$ARCHIVE" ]] || die "release archive not found: ${ARCHIVE}"
-[[ ! -e "$RELEASE_DIR" ]] || die "release already exists: ${RELEASE_DIR}"
+[[ ! -e "$RELEASE_DIR" && ! -L "$RELEASE_DIR" ]] || die "release already exists: ${RELEASE_DIR}"
 [[ -f "$ENV_FILE" ]] || die "missing production environment file: ${ENV_FILE}"
 [[ -f "${DEPLOY_ROOT}/data/gdsa-practice.sqlite3" ]] || die "missing question database"
 [[ -f "${DEPLOY_ROOT}/data/projects_index.jsonl" ]] || die "missing project-aware RAG index"
+
+previous_release=""
+baseline_release=""
+current_kind="absent"
+if [[ -L "$CURRENT_LINK" ]]; then
+    [[ "$adopt_existing_current" == false ]] \
+        || die "--adopt-existing-current requires an existing ordinary directory: ${CURRENT_LINK}"
+    previous_release="$(readlink -f "$CURRENT_LINK" || true)"
+    [[ -n "$previous_release" && -d "$previous_release" ]] \
+        || die "current symlink does not resolve to a release directory: ${CURRENT_LINK}"
+    current_kind="symlink"
+elif [[ -d "$CURRENT_LINK" ]]; then
+    [[ "$adopt_existing_current" == true ]] \
+        || die "current is an ordinary directory; rerun once with --adopt-existing-current after validating the migration procedure"
+    for existing_path in backend/practice_api.py frontend/index.html; do
+        [[ -f "$CURRENT_LINK/$existing_path" ]] \
+            || die "existing current directory is missing ${existing_path}; refusing adoption"
+    done
+    baseline_release="${RELEASES_DIR}/baseline-before-${RELEASE_ID}"
+    [[ ! -e "$baseline_release" && ! -L "$baseline_release" ]] \
+        || die "baseline release already exists: ${baseline_release}"
+    current_kind="directory"
+elif [[ -e "$CURRENT_LINK" ]]; then
+    die "current deployment path is neither a directory nor a symlink: ${CURRENT_LINK}"
+elif [[ "$adopt_existing_current" == true ]]; then
+    die "--adopt-existing-current requires an existing ordinary directory: ${CURRENT_LINK}"
+fi
 
 readonly STAGING_DIR="$(mktemp -d /tmp/gdsa-practice-release.XXXXXX)"
 cleanup() {
@@ -75,33 +108,58 @@ fi
 [[ -x "$VENV_DIR/bin/gunicorn" ]] \
     || die "Gunicorn was not installed into virtual environment: ${VENV_DIR}"
 
-previous_release=""
-if [[ -L "$CURRENT_LINK" ]]; then
-    previous_release="$(readlink -f "$CURRENT_LINK" || true)"
-elif [[ -e "$CURRENT_LINK" ]]; then
-    die "current deployment path is not a symlink: ${CURRENT_LINK}"
+if [[ "$current_kind" == "directory" ]]; then
+    mv -- "$CURRENT_LINK" "$baseline_release" \
+        || die "failed to preserve the existing current directory as ${baseline_release}"
 fi
 
-rm -f -- "${CURRENT_LINK}.next"
-ln -s -- "$RELEASE_DIR" "${CURRENT_LINK}.next"
-mv -Tf -- "${CURRENT_LINK}.next" "$CURRENT_LINK"
+restore_previous() {
+    rm -f -- "${CURRENT_LINK}.next"
 
-rollback() {
-    if [[ -n "$previous_release" && -d "$previous_release" ]]; then
-        rm -f -- "${CURRENT_LINK}.next"
-        ln -s -- "$previous_release" "${CURRENT_LINK}.next"
+    if [[ -n "$baseline_release" && -d "$baseline_release" ]]; then
+        if [[ -L "$CURRENT_LINK" ]]; then
+            rm -f -- "$CURRENT_LINK" || return 1
+        elif [[ -e "$CURRENT_LINK" ]]; then
+            echo "Refusing to overwrite unexpected path while restoring: ${CURRENT_LINK}" >&2
+            return 1
+        fi
+        mv -- "$baseline_release" "$CURRENT_LINK"
+    elif [[ -n "$previous_release" && -d "$previous_release" ]]; then
+        ln -s -- "$previous_release" "${CURRENT_LINK}.next" || return 1
         mv -Tf -- "${CURRENT_LINK}.next" "$CURRENT_LINK"
-        systemctl restart "$SERVICE_NAME" || true
+    else
+        if [[ -L "$CURRENT_LINK" ]]; then
+            rm -f -- "$CURRENT_LINK"
+        elif [[ -e "$CURRENT_LINK" ]]; then
+            echo "Refusing to remove unexpected path while rolling back: ${CURRENT_LINK}" >&2
+            return 1
+        fi
     fi
 }
 
-if ! systemctl restart "$SERVICE_NAME"; then
-    rollback
-    die "systemd restart failed; previous release was restored when available"
-fi
-if ! bash "$RELEASE_DIR/deploy/scripts/health-check.sh"; then
-    rollback
-    die "health check failed; previous release was restored when available"
+rm -f -- "${CURRENT_LINK}.next"
+if ! ln -s -- "$RELEASE_DIR" "${CURRENT_LINK}.next" \
+    || ! mv -Tf -- "${CURRENT_LINK}.next" "$CURRENT_LINK"; then
+    restore_previous || die "release activation failed and the previous current path could not be restored"
+    die "release activation failed; the previous current path was restored"
 fi
 
+if ! systemctl restart "$SERVICE_NAME"; then
+    restore_previous || die "systemd restart failed and the previous current path could not be restored"
+    if [[ "$current_kind" != "absent" ]]; then
+        systemctl restart "$SERVICE_NAME" || true
+    fi
+    die "systemd restart failed; the previous current path was restored"
+fi
+if ! bash "$RELEASE_DIR/deploy/scripts/health-check.sh"; then
+    restore_previous || die "health check failed and the previous current path could not be restored"
+    if [[ "$current_kind" != "absent" ]]; then
+        systemctl restart "$SERVICE_NAME" || true
+    fi
+    die "health check failed; the previous current path was restored"
+fi
+
+if [[ -n "$baseline_release" ]]; then
+    echo "Adopted previous current directory as baseline release: ${baseline_release}"
+fi
 echo "Deployment succeeded: ${RELEASE_ID}"

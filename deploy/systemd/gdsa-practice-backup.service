@@ -1,14 +1,14 @@
 [Unit]
 Description=Back up the GDSA practice SQLite database
-RequiresMountsFor=/opt/gdsa-practice/data /var/backups/gdsa-practice
+RequiresMountsFor=/opt/security-study/data /var/backups/gdsa-practice
 
 [Service]
 Type=oneshot
 User=root
 Group=root
-WorkingDirectory=/opt/gdsa-practice/current/backend
+WorkingDirectory=/opt/security-study/current/backend
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/opt/gdsa-practice/venv/bin/python /opt/gdsa-practice/current/backend/database_admin.py backup --database /opt/gdsa-practice/data/gdsa-practice.sqlite3 --backup-dir /var/backups/gdsa-practice --project "SEC530 - GDSA"
+ExecStart=/opt/security-study/venv/bin/python /opt/security-study/current/backend/database_admin.py backup --database /opt/security-study/data/gdsa-practice.sqlite3 --backup-dir /var/backups/gdsa-practice --project "SEC530 - GDSA"
 UMask=0027
 
 NoNewPrivileges=true
@@ -16,7 +16,7 @@ PrivateDevices=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadOnlyPaths=/opt/gdsa-practice
+ReadOnlyPaths=/opt/security-study
 ReadWritePaths=/var/backups/gdsa-practice
 RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=true

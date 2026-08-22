@@ -5,6 +5,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      adopt_existing_current:
+        description: One-time adoption of the validated ordinary /opt/security-study/current directory
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -58,6 +64,7 @@ jobs:
           KEY_FILE: ${{ steps.ssh.outputs.key_file }}
           KNOWN_HOSTS_FILE: ${{ steps.ssh.outputs.known_hosts_file }}
           RELEASE_ID: ${{ github.sha }}
+          ADOPT_EXISTING_CURRENT: ${{ github.event_name == 'workflow_dispatch' && inputs.adopt_existing_current || false }}
         run: |
           set -euo pipefail
           test -n "$EC2_HOST" || { echo "EC2_HOST is not configured" >&2; exit 1; }
@@ -83,9 +90,15 @@ jobs:
             -o UserKnownHostsFile="$KNOWN_HOSTS_FILE"
           )
           scp "${scp_options[@]}" release.tar.gz "$target:$remote_archive"
-          ssh "${ssh_options[@]}" "$target" \
-            "sudo bash -s -- '$remote_archive' '$short_release_id'" \
-            < deploy/scripts/deploy-release.sh
+          if [[ "$ADOPT_EXISTING_CURRENT" == "true" ]]; then
+            ssh "${ssh_options[@]}" "$target" \
+              "sudo bash -s -- --adopt-existing-current '$remote_archive' '$short_release_id'" \
+              < deploy/scripts/deploy-release.sh
+          else
+            ssh "${ssh_options[@]}" "$target" \
+              "sudo bash -s -- '$remote_archive' '$short_release_id'" \
+              < deploy/scripts/deploy-release.sh
+          fi
 
       - name: Remove temporary SSH material
         if: always()
