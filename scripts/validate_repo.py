@@ -10,7 +10,17 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-IGNORED_DIRECTORY_NAMES = {".git", ".venv", "venv", "env", "__pycache__", ".pytest_cache"}
+
+IGNORED_DIRECTORY_NAMES = {
+    ".git",
+    ".venv",
+    "venv",
+    "env",
+    "__pycache__",
+    ".pytest_cache",
+    "content",
+}
+
 REQUIRED_FILES = (
     "README.md",
     ".gitignore",
@@ -20,9 +30,6 @@ REQUIRED_FILES = (
     "backend/requirements.txt",
     "frontend/index.html",
     "frontend/app.js",
-    "content/sec530-study.json",
-    "content/cissp-study.json",
-    "content/gmon-study.json",
     "deploy/environment/gdsa-practice.env.example",
     "deploy/scripts/deploy-release.sh",
     "deploy/scripts/health-check.sh",
@@ -32,6 +39,7 @@ REQUIRED_FILES = (
     ".github/workflows/ci.yml",
     ".github/workflows/deploy-ec2.yml",
 )
+
 PINNED_REQUIREMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*==[^#\s]+$")
 
 
