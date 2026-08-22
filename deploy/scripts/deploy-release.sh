@@ -27,6 +27,8 @@ readonly CURRENT_LINK="${DEPLOY_ROOT}/current"
 readonly VENV_DIR="${DEPLOY_ROOT}/venv"
 readonly CONTENT_DIR="${DEPLOY_ROOT}/data/content"
 readonly RELEASE_DIR="${RELEASES_DIR}/${RELEASE_ID}"
+release_dir_created=false
+release_cleanup_safe=true
 
 die() {
     echo "Deployment failed: $*" >&2
@@ -78,12 +80,55 @@ fi
 
 readonly STAGING_DIR="$(mktemp -d /tmp/gdsa-practice-release.XXXXXX)"
 content_migration_dir=""
+cleanup_failed_release() {
+    local resolved_current=""
+    local release_name="${RELEASE_DIR#"${RELEASES_DIR}/"}"
+
+    if [[ "$RELEASE_DIR" != "${RELEASES_DIR}/"* || -z "$release_name" || "$release_name" == */* ]]; then
+        echo "Leaving failed release in place: path is not a direct child of ${RELEASES_DIR}: ${RELEASE_DIR}" >&2
+        return 0
+    fi
+    if [[ -L "$CURRENT_LINK" ]]; then
+        resolved_current="$(readlink -f "$CURRENT_LINK" || true)"
+    fi
+    if [[ -n "$resolved_current" && "$resolved_current" == "$RELEASE_DIR" ]]; then
+        echo "Leaving failed release in place because current still references it: ${RELEASE_DIR}" >&2
+        return 0
+    fi
+    if [[ -n "$previous_release" && "$previous_release" == "$RELEASE_DIR" ]]; then
+        echo "Leaving failed release in place because it is the previous production release: ${RELEASE_DIR}" >&2
+        return 0
+    fi
+    if [[ -n "$baseline_release" && "$baseline_release" == "$RELEASE_DIR" ]]; then
+        echo "Leaving failed release in place because it is the adoption baseline: ${RELEASE_DIR}" >&2
+        return 0
+    fi
+    if [[ -L "$RELEASE_DIR" ]]; then
+        echo "Leaving failed release in place because it is an unexpected symlink: ${RELEASE_DIR}" >&2
+        return 0
+    fi
+    if [[ -d "$RELEASE_DIR" ]]; then
+        rm -rf -- "$RELEASE_DIR"
+        echo "Removed newly failed release after safe rollback: ${RELEASE_DIR}" >&2
+    fi
+}
+
 cleanup() {
+    local status=$?
+
     rm -rf -- "$STAGING_DIR"
     if [[ -n "$content_migration_dir" && -d "$content_migration_dir" ]]; then
         rm -rf -- "$content_migration_dir"
     fi
     rm -f -- "$ARCHIVE"
+    if [[ "$status" -ne 0 && "$release_dir_created" == true ]]; then
+        if [[ "$release_cleanup_safe" == true ]]; then
+            cleanup_failed_release
+        else
+            echo "Leaving failed release in place because rollback safety was not confirmed: ${RELEASE_DIR}" >&2
+        fi
+    fi
+    return "$status"
 }
 trap cleanup EXIT
 
@@ -96,6 +141,7 @@ for required_path in backend/requirements.txt backend/practice_api.py frontend/i
 
 install -d -o root -g root -m 0755 "$DEPLOY_ROOT" "$RELEASES_DIR"
 install -d -o root -g root -m 0755 "$RELEASE_DIR"
+release_dir_created=true
 for item in backend frontend deploy scripts docs README.md .gitattributes; do if [[ -e "$STAGING_DIR/$item" ]]; then cp -a -- "$STAGING_DIR/$item" "$RELEASE_DIR/"; fi; done
 chown -R root:root "$RELEASE_DIR"
 find "$RELEASE_DIR" -type d -exec chmod 0755 {} +
@@ -124,6 +170,7 @@ if [[ -e "$CONTENT_DIR" || -L "$CONTENT_DIR" ]]; then
         || die "persistent study content path must be an ordinary directory: ${CONTENT_DIR}"
     validate_content "$CONTENT_DIR" \
         || die "persistent study content is incomplete or invalid: ${CONTENT_DIR}"
+    echo "Reusing validated persistent study content: ${CONTENT_DIR}"
 else
     readonly EXISTING_CONTENT_DIR="${CURRENT_LINK}/content"
     [[ -d "$EXISTING_CONTENT_DIR" ]] \
@@ -159,6 +206,7 @@ done
 ln -s -- "$CONTENT_DIR" "$RELEASE_DIR/content" \
     || die "failed to link release to persistent study content"
 
+release_cleanup_safe=false
 if [[ "$current_kind" == "directory" ]]; then
     mv -- "$CURRENT_LINK" "$baseline_release" \
         || die "failed to preserve the existing current directory as ${baseline_release}"
@@ -192,11 +240,13 @@ rm -f -- "${CURRENT_LINK}.next"
 if ! ln -s -- "$RELEASE_DIR" "${CURRENT_LINK}.next" \
     || ! mv -Tf -- "${CURRENT_LINK}.next" "$CURRENT_LINK"; then
     restore_previous || die "release activation failed and the previous current path could not be restored"
+    release_cleanup_safe=true
     die "release activation failed; the previous current path was restored"
 fi
 
 if ! systemctl restart "$SERVICE_NAME"; then
     restore_previous || die "systemd restart failed and the previous current path could not be restored"
+    release_cleanup_safe=true
     if [[ "$current_kind" != "absent" ]]; then
         systemctl restart "$SERVICE_NAME" || true
     fi
@@ -204,6 +254,7 @@ if ! systemctl restart "$SERVICE_NAME"; then
 fi
 if ! bash "$RELEASE_DIR/deploy/scripts/health-check.sh"; then
     restore_previous || die "health check failed and the previous current path could not be restored"
+    release_cleanup_safe=true
     if [[ "$current_kind" != "absent" ]]; then
         systemctl restart "$SERVICE_NAME" || true
     fi

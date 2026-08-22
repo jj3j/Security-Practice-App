@@ -128,6 +128,8 @@ The deployment script then:
 3. if persistent content does not exist, validates and copies the existing
    `current/content` into `/opt/security-study/data/content`, leaving the
    original copy untouched;
+   if persistent content already exists after a failed attempt, validates and
+   reuses it without overwriting or repeating the migration;
 4. validates all required persistent study catalogs and indexes;
 5. links the release's `content` path to persistent storage;
 6. moves the complete ordinary `current` directory, including its backup
@@ -135,14 +137,19 @@ The deployment script then:
    `/opt/security-study/releases/baseline-before-<release-id>`;
 7. atomically activates the new release through the `current` symlink;
 8. restarts `gdsa-practice.service` so catalogs are reloaded; and
-9. checks both `http://127.0.0.1:8765/health` and
-   `http://127.0.0.1/health`.
+9. polls both `http://127.0.0.1:8765/health` and
+   `http://127.0.0.1/health` every two seconds until both are ready or the
+   shared 30-second readiness deadline expires.
 
 If activation, restart, or either health check fails, the new `current`
 symlink is removed and the baseline directory is moved back to the original
 ordinary `/opt/security-study/current` path. After a restart or health failure,
-the script also attempts to restart the restored application. The failed new
-release remains in `releases` for diagnosis; runtime databases are untouched.
+the script also attempts to restart the restored application. Once rollback is
+confirmed, only the newly failed release is removed. The script never removes
+the restored production release, the adoption baseline, the release referenced
+by `current`, or persistent data. If rollback safety cannot be confirmed, the
+failed release is left in place and the deployment reports why. Runtime
+databases and persistent study content are untouched.
 
 On success, `current` is a symlink to the new immutable release and the
 baseline remains in `releases`. Do not enable the adoption input again.
