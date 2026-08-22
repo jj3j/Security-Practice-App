@@ -1,0 +1,286 @@
+/* Final screen geometry loaded after the legacy stylesheet. */
+
+@media (min-width: 769px) {
+  :root {
+    --rail-width: 256px;
+  }
+
+  #app.app {
+    display: grid;
+    grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  }
+
+  #app > .site-header {
+    width: var(--rail-width);
+  }
+
+  #app > #applicationMain {
+    grid-column: 2;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    margin: 0;
+    padding: 32px 40px 48px;
+  }
+
+  #app > #applicationMain > .view {
+    width: min(100%, 1400px);
+    max-width: 1400px;
+    min-width: 0;
+    margin: 0;
+  }
+
+  #app > #applicationMain > #lessonView {
+    max-width: 1280px;
+  }
+
+  #app > #applicationMain > #flashcardView,
+  #app > #applicationMain > #groundedView {
+    max-width: 1100px;
+  }
+
+  #app > #applicationMain > .view > .context-nav {
+    margin-bottom: 16px;
+  }
+
+  #app > #applicationMain > .view > .page-heading,
+  #app > #applicationMain > .view > .results-heading {
+    margin: 0 0 24px;
+  }
+
+  #app > #applicationMain > .view > .page-heading h1,
+  #app > #applicationMain > .view > .results-heading h1,
+  #app #chapterView .chapter-overview-header h1,
+  #app #lessonView .lesson-reader-header h1,
+  #app .focus-study-heading h1 {
+    margin-bottom: 8px;
+    font-size: 42px;
+    line-height: 1.08;
+  }
+
+  #app .heading-with-action,
+  #app .results-heading {
+    align-items: center;
+  }
+
+  #app .course-grid,
+  #app .pathway-grid,
+  #app .bundle-grid,
+  #app .chapter-list {
+    width: 100%;
+    max-width: none;
+    margin-inline: 0;
+  }
+
+  #app #courseSelectionView .page-heading {
+    max-width: 900px;
+    margin: 0 0 24px;
+    text-align: left;
+  }
+
+  #app #courseSelectionView .course-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  #app #courseSelectionView .course-card {
+    min-height: 240px;
+    padding: 24px;
+  }
+
+  #app #courseSelectionView .course-card h2 {
+    margin: 16px 0 8px;
+    font-size: 1.4rem;
+  }
+
+  #app #dashboardView .pathway-heading,
+  #app #pathwayChoiceView .pathway-heading,
+  #app #examPathwayView .pathway-heading,
+  #app #bundleSelectionView .pathway-heading {
+    max-width: 1000px;
+    margin-bottom: 24px;
+  }
+
+  #app #dashboardView .dashboard-section-heading {
+    justify-content: flex-start;
+    margin-bottom: 12px;
+  }
+
+  #app #dashboardView .dashboard-heading-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  #app #dashboardView .dashboard-heading-title h2 {
+    margin: 0;
+  }
+
+  #app #dashboardView .dashboard-metric-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  #app #dashboardView .dashboard-metric-card {
+    min-height: 116px;
+    padding: 18px 20px;
+  }
+
+  #app #dashboardView .dashboard-detail-grid {
+    grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  #app #dashboardView .dashboard-panel {
+    min-height: 230px;
+    padding: 20px;
+  }
+
+  #app #dashboardView .dashboard-next-step {
+    margin-top: 16px;
+    padding: 18px 20px;
+  }
+
+  #app #pathwayChoiceView .pathway-card,
+  #app #examPathwayView .pathway-card {
+    min-height: 360px;
+    padding: 24px;
+  }
+
+  #app #pathwayChoiceView .pathway-icon,
+  #app #examPathwayView .pathway-icon {
+    width: 56px;
+    height: 56px;
+  }
+
+  #app #pathwayChoiceView .pathway-card h2,
+  #app #examPathwayView .pathway-card h2 {
+    margin: 14px 0 8px;
+    font-size: 1.8rem;
+  }
+
+  #app #pathwayChoiceView .pathway-features,
+  #app #examPathwayView .pathway-features {
+    margin: 16px 0 20px;
+  }
+
+  #app #bundleSelectionView .bundle-card {
+    min-height: 260px;
+    padding: 22px;
+  }
+
+  #app #studyView .chapter-card {
+    min-height: 260px;
+    padding: 22px;
+  }
+
+  #app #chapterView .chapter-overview-header {
+    margin: 0 0 20px;
+    padding: 24px;
+  }
+
+  #app #chapterView .chapter-overview-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    gap: 16px;
+  }
+
+  #app #chapterView .chapter-lessons-panel,
+  #app #chapterView .chapter-objectives-panel {
+    padding: 20px;
+  }
+
+  #app #lessonView .lesson-reader-layout {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 24px;
+  }
+
+  #app #lessonView .lesson-reader-header {
+    padding: 32px 36px 16px;
+  }
+
+  #app #lessonView .lesson-content {
+    padding: 8px 36px 28px;
+  }
+
+  #app #lessonView .lesson-navigation {
+    margin: 0 36px 28px;
+  }
+
+  #app #resultsView .results-metric-grid,
+  #app #adminView .admin-analytics-grid {
+    gap: 12px;
+  }
+
+  #app #resultsView .results-metric-grid article,
+  #app #adminView .admin-analytics-grid article {
+    min-height: 112px;
+    padding: 18px 20px;
+  }
+
+  #app #questionView {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 16px;
+  }
+
+  #app #questionView .question-head,
+  #app #questionView .question-body {
+    padding: 24px;
+  }
+
+  #app #questionView .actions {
+    padding: 18px 24px 24px;
+  }
+
+  #app #adminView .page-heading,
+  #app #adminView .admin-layout-heading {
+    margin-bottom: 20px;
+  }
+
+  #app #adminView .admin-section-nav {
+    margin: 16px 0 20px;
+  }
+
+  #app #adminView .admin-access-layout,
+  #app #adminView .admin-content-layout {
+    gap: 16px;
+  }
+
+  #app #adminView .admin-roster,
+  #app #adminView .admin-content-library,
+  #app #adminView .admin-access-workspace,
+  #app #adminView .admin-content-preview {
+    padding: 20px;
+  }
+
+  #app .search-dialog {
+    width: min(100%, 1100px);
+    min-height: min(650px, calc(100vh - 48px));
+    padding: 24px;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1100px) {
+  #app > #applicationMain {
+    padding-right: 32px;
+    padding-left: 32px;
+  }
+
+  #app #dashboardView .dashboard-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #app #chapterView .chapter-overview-layout,
+  #app #lessonView .lesson-reader-layout,
+  #app #adminView .admin-access-layout,
+  #app #adminView .admin-content-layout,
+  #app #questionView {
+    grid-template-columns: 1fr;
+  }
+
+  #app #lessonView .lesson-contents-panel,
+  #app #questionView .side {
+    position: static;
+  }
+}

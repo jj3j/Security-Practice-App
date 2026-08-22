@@ -1,0 +1,43 @@
+[Unit]
+Description=GDSA practice API
+After=network.target
+
+[Service]
+Type=simple
+User=gdsa-practice
+Group=gdsa-practice
+WorkingDirectory=/opt/gdsa-practice/current/backend
+EnvironmentFile=/etc/gdsa-practice/gdsa-practice.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/gdsa-practice/venv/bin/gunicorn --config /opt/gdsa-practice/current/backend/gunicorn.conf.py
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+UMask=0027
+StateDirectory=gdsa-practice
+StateDirectoryMode=0750
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+ReadOnlyPaths=/opt/gdsa-practice
+
+[Install]
+WantedBy=multi-user.target

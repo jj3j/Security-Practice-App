@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:,">
+  <title>ExamCore | Security Study App</title>
+  <link rel="stylesheet" href="/styles.css?v=17">
+  <link rel="stylesheet" href="/layout-v17.css?v=17">
+  <script src="/app.js?v=18" defer></script>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="site-header" aria-label="Primary navigation">
+      <div class="topbar">
+        <button class="brand" id="brandLink" type="button" aria-label="Go to application home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false"><path d="M12 3 4.5 6.2v5.4c0 4.7 3.1 7.9 7.5 9.4 4.4-1.5 7.5-4.7 7.5-9.4V6.2L12 3Zm0 3.1 4.7 2v3.5c0 3.2-1.9 5.4-4.7 6.7-2.8-1.3-4.7-3.5-4.7-6.7V8.1l4.7-2Z"/></svg>
+          </span>
+          <span class="brand-copy"><strong>ExamCore</strong><small>Security Study App</small></span>
+        </button>
+        <nav id="appNavigation" class="app-navigation hidden" aria-label="Application sections">
+          <button id="sidebarSubjectsButton" class="nav-subject-button" type="button">
+            <span aria-hidden="true">+</span><span>Select subject</span>
+          </button>
+          <button id="sidebarDashboardButton" class="nav-item" type="button" data-nav-view="dashboardView">
+            <span aria-hidden="true">⌂</span><span>Dashboard</span>
+          </button>
+          <button id="sidebarStudyButton" class="nav-item" type="button" data-nav-view="studyView">
+            <span aria-hidden="true">▤</span><span>Study</span>
+          </button>
+          <button id="sidebarExamButton" class="nav-item" type="button" data-nav-view="examPathwayView">
+            <span aria-hidden="true">◫</span><span>Exam</span>
+          </button>
+        </nav>
+        <div class="account-actions">
+          <span id="userIdentity" class="user-identity"></span>
+          <button id="globalSearchButton" class="ghost hidden" type="button" aria-haspopup="dialog">Search</button>
+          <div class="theme-control" role="group" aria-label="Color theme">
+            <button id="lightThemeButton" class="theme-option" type="button" aria-pressed="true">Light</button>
+            <button id="darkThemeButton" class="theme-option" type="button" aria-pressed="false">Dark</button>
+          </div>
+          <button id="adminButton" class="ghost hidden" type="button">Manage users</button>
+          <button id="logoutButton" class="ghost hidden" type="button">Sign out</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- LOGIN REQUIRED -->
+    <section id="loginRequired" class="login-required hidden">
+      <div class="login-card">
+        <p class="eyebrow">Security learning workspace</p>
+        <h1>ExamCore</h1>
+        <h2>Continue your security studies</h2>
+        <p>Sign in to access your courses and saved progress.</p>
+        <a class="button-link primary google-btn" href="/auth/login">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+          </svg>
+          Sign in with Google
+        </a>
+      </div>
+    </section>
+
+    <!-- APPLICATION MAIN -->
+    <main id="applicationMain" class="hidden">
+
+      <section id="courseSelectionView" class="view">
+        <div class="page-heading">
+          <p class="eyebrow">Subject library</p>
+          <h1 tabindex="-1">Choose a subject</h1>
+          <p>Select a certification to open its available learning pathways. Progress stays separate by subject.</p>
+        </div>
+        <div id="courseGrid" class="course-grid" aria-live="polite"></div>
+      </section>
+
+      <section id="dashboardView" class="view hidden">
+        <nav class="context-nav" aria-label="Breadcrumb">
+          <button id="changeCourseButton" class="text-button" type="button">Subjects</button>
+          <span aria-hidden="true">/</span>
+          <span id="pathwayBreadcrumbCourse" aria-current="page">Course</span>
+        </nav>
+        <div class="page-heading pathway-heading">
+          <p class="eyebrow" id="selectedCourseLabel">Course</p>
+          <h1 id="pathwayHeading" tabindex="-1">Learning dashboard</h1>
+          <p id="pathwayCourseTitle">Track your study progress and continue where you left off.</p>
+        </div>
+
+        <section class="dashboard-insights" aria-labelledby="learningOverviewHeading">
+          <div class="section-heading-row dashboard-section-heading">
+            <div class="dashboard-heading-copy">
+              <p class="eyebrow">Saved learner data</p>
+              <div class="dashboard-heading-title">
+                <h2 id="learningOverviewHeading">Learning overview</h2>
+                <button id="refreshDashboardButton" class="ghost" type="button">Refresh</button>
+              </div>
+            </div>
+          </div>
+          <div class="dashboard-metric-grid" aria-live="polite">
+            <article class="dashboard-metric-card"><span>Study progress</span><strong id="dashboardStudyMetric">—</strong></article>
+            <article class="dashboard-metric-card"><span>Assessments</span><strong id="dashboardAssessmentMetric">—</strong></article>
+            <article class="dashboard-metric-card"><span>Average score</span><strong id="dashboardAverageMetric">—</strong></article>
+            <article class="dashboard-metric-card"><span>Review queue</span><strong id="dashboardReviewMetric">—</strong></article>
+          </div>
+          <div class="dashboard-detail-grid">
+            <section class="dashboard-panel" aria-labelledby="recentAttemptsHeading">
+              <div class="section-heading-row">
+                <h3 id="recentAttemptsHeading">Recent assessments</h3>
+                <span id="dashboardAttemptStatus" class="muted"></span>
+              </div>
+              <div id="recentAttemptList" class="compact-list"></div>
+            </section>
+            <section class="dashboard-panel" aria-labelledby="savedItemsHeading">
+              <div class="section-heading-row">
+                <h3 id="savedItemsHeading">Saved for later</h3>
+                <span id="dashboardItemStatus" class="muted"></span>
+              </div>
+              <div id="savedItemList" class="compact-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="dashboard-next-step" aria-labelledby="dashboardNextStepHeading">
+          <div>
+            <p class="eyebrow">Continue preparing</p>
+            <h2 id="dashboardNextStepHeading">Choose your next pathway</h2>
+            <p>Build knowledge in Study or test readiness in Examination.</p>
+          </div>
+          <button id="openPathwayChoiceButton" class="primary" type="button">Choose pathway</button>
+        </section>
+      </section>
+
+      <section id="pathwayChoiceView" class="view hidden">
+        <nav class="context-nav" aria-label="Breadcrumb">
+          <button id="pathwayChoiceBackButton" class="text-button" type="button">Dashboard</button>
+          <span aria-hidden="true">/</span>
+          <span id="pathwayChoiceCourse" aria-current="page">Course</span>
+        </nav>
+        <div class="page-heading pathway-heading">
+          <p class="eyebrow">Preparation pathway</p>
+          <h1 tabindex="-1">Select pathway</h1>
+          <p id="pathwayChoiceDescription">Choose foundational study or a readiness assessment.</p>
+        </div>
+
+        <div class="pathway-grid">
+          <article id="studyPathwayCard" class="pathway-card study-pathway">
+            <div class="pathway-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M5 3h13a2 2 0 0 1 2 2v15.5a.5.5 0 0 1-.8.4A5.7 5.7 0 0 0 16 20H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm1 3v11h10c.7 0 1.4.1 2 .4V6H6Z"/></svg>
+            </div>
+            <div>
+              <p class="eyebrow">Foundational learning</p>
+              <h2>Study module</h2>
+              <p id="dashboardStudyDescription">Review chapter guides, use flashcards, and explore source-grounded explanations.</p>
+            </div>
+            <ul class="pathway-features" aria-label="Study module features">
+              <li>Focused lessons and source summaries</li>
+              <li>Interactive flashcards</li>
+              <li>Reference-backed explanations</li>
+            </ul>
+            <p id="dashChapterProgress" class="module-meta">0 of 6 chapters complete</p>
+            <button id="dashboardStudyBtn" class="primary" type="button">Enter study module</button>
+          </article>
+
+          <article id="examPathwayCard" class="pathway-card exam-pathway">
+            <div class="pathway-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M9 2h6v2h3a2 2 0 0 1 2 2v15H4V6a2 2 0 0 1 2-2h3V2Zm2 2h2V3h-2v1ZM7 7v11h10V7H7Zm2 2h6v2H9V9Zm0 4h6v2H9v-2Z"/></svg>
+            </div>
+            <div>
+              <p class="eyebrow">Readiness testing</p>
+              <h2>Examination module</h2>
+              <p>Choose untimed practice for guided feedback or a timed mock exam for a realistic assessment.</p>
+            </div>
+            <ul class="pathway-features" aria-label="Examination module features">
+              <li>Structured question bundles</li>
+              <li>Practice with instant feedback</li>
+              <li>Timed, scored mock exams</li>
+            </ul>
+            <p id="examPathwaySummary" class="module-meta">Practice and mock exam options available</p>
+            <button id="dashboardExamPathBtn" class="primary" type="button">Open examination module</button>
+          </article>
+        </div>
+      </section>
+
+      <section id="examPathwayView" class="view hidden">
+        <nav class="context-nav" aria-label="Breadcrumb">
+          <button id="examPathwayBackButton" class="text-button" type="button">Course pathways</button>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page">Examination</span>
+        </nav>
+        <div class="page-heading pathway-heading">
+          <p class="eyebrow">Examination module</p>
+          <h1 tabindex="-1">Choose assessment type</h1>
+          <p>Use Practice to learn from each answer, or Mock Exam to test yourself under timed conditions.</p>
+        </div>
+
+        <div class="pathway-grid assessment-grid">
+          <article class="pathway-card practice-pathway">
+            <div class="pathway-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M7 3h10a2 2 0 0 1 2 2v16l-7-3-7 3V5a2 2 0 0 1 2-2Zm1 3v10.4l4-1.7 4 1.7V6H8Z"/></svg>
+            </div>
+            <div>
+              <p class="eyebrow">Guided assessment</p>
+              <h2>Practice exercises</h2>
+              <p>Work at your own pace with immediate scoring and source explanations after each answer.</p>
+            </div>
+            <p id="practicePathwayMeta" class="module-meta">Questions available · Unlimited time</p>
+            <button id="dashboardPracticeBtn" class="primary" type="button">Choose practice bundle</button>
+          </article>
+
+          <article class="pathway-card exam-pathway">
+            <div class="pathway-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 2a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V2Zm1 4h-2v6l5 3 1-1.7-4-2.3V6Z"/></svg>
+            </div>
+            <div>
+              <p class="eyebrow">Timed assessment</p>
+              <h2 id="dashboardExamTitle">Mock exam</h2>
+              <p>Complete a scored attempt with locked answers, a visible timer, and review after submission.</p>
+            </div>
+            <p id="examPathwayMeta" class="module-meta">Questions available · Timed</p>
+            <button id="dashboardExamBtn" class="primary" type="button">Choose exam bundle</button>
+          </article>
+        </div>
+        <p id="examPathwayStatus" class="status-message hidden" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="bundleSelectionView" class="view hidden">
+        <nav class="context-nav" aria-label="Breadcrumb">
+          <button id="bundleBackButton" class="text-button" type="button">Examination module</button>
+          <span aria-hidden="true">/</span>
+          <span id="bundleBreadcrumbMode" aria-current="page">Bundles</span>
+        </nav>
+        <div class="page-heading pathway-heading">
+          <p class="eyebrow" id="bundleSelectionEyebrow">Assessment bundles</p>
+          <h1 id="bundleSelectionTitle" tabindex="-1">Choose a bundle</h1>
+          <p id="bundleSelectionDescription">Select the question set you want to begin.</p>
+        </div>
+        <div id="bundleGrid" class="bundle-grid" aria-live="polite"></div>
+        <p id="bundleSelectionStatus" class="status-message hidden" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="adminView" class="view hidden">
+        <div class="page-heading heading-with-action">
+          <div>
+            <p class="eyebrow">Owner administration</p>
+            <h1>Administration</h1>
+            <p>Manage exact identities, roles, course access, and the owner audit trail.</p>
+          </div>
+          <div class="admin-heading-actions">
+            <button id="refreshPendingButton" class="ghost" type="button">Refresh all</button>
+            <button id="adminBackButton" class="ghost" type="button">Back to dashboard</button>
+          </div>
+        </div>
+        <nav class="admin-section-nav" aria-label="Owner administration sections">
+          <button class="admin-section-tab is-active" type="button" data-admin-section="adminUsersPanel" aria-pressed="true">User management</button>
+          <button class="admin-section-tab" type="button" data-admin-section="adminAccessPanel" aria-pressed="false">Module access</button>
+          <button class="admin-section-tab" type="button" data-admin-section="adminContentPanel" aria-pressed="false">Content layout</button>
+          <button class="admin-section-tab" type="button" data-admin-section="adminAnalyticsPanel" aria-pressed="false">Analytics &amp; audit</button>
+        </nav>
+
+        <div id="adminUsersPanel" class="admin-section-panel">
+        <div class="admin-summary" aria-live="polite">
+          <strong id="pendingIdentityCount">0 pending identities</strong>
+          <span id="pendingIdentityStatus">Loading pending identities…</span>
+        </div>
+        <div id="pendingIdentityList" class="pending-identity-list" aria-live="polite"></div>
+        <div class="admin-pagination" aria-label="Pending identities pagination">
+          <button id="previousPendingPage" class="ghost" type="button">Previous</button>
+          <span id="pendingPageStatus">Page 1</span>
+          <button id="nextPendingPage" class="ghost" type="button">Next</button>
+        </div>
+
+        <section class="approved-identities-section">
+          <div class="page-heading">
+            <p class="eyebrow">Access list</p>
+            <h2>Current approved users</h2>
+            <p>These identities currently have an application role. Disabled identities remain visible for recovery and audit purposes.</p>
+          </div>
+          <div class="admin-summary" aria-live="polite">
+            <strong id="approvedIdentityCount">0 approved identities</strong>
+            <span id="approvedIdentityStatus">Loading approved identities…</span>
+          </div>
+          <label class="admin-filter" for="adminUserFilter">
+            <span>Filter this page</span>
+            <input id="adminUserFilter" type="search" maxlength="100" placeholder="Name, email, role, or status">
+          </label>
+          <div id="approvedIdentityList" class="pending-identity-list" aria-live="polite"></div>
+          <div class="admin-pagination" aria-label="Approved identities pagination">
+            <button id="previousApprovedPage" class="ghost" type="button">Previous</button>
+            <span id="approvedPageStatus">Page 1</span>
+            <button id="nextApprovedPage" class="ghost" type="button">Next</button>
+          </div>
+        </section>
+
+        </div>
+
+        <section id="adminAccessPanel" class="admin-section-panel hidden" aria-labelledby="adminAccessHeading">
+          <div class="admin-layout-heading">
+            <div>
+              <p class="eyebrow">Access control</p>
+              <h2 id="adminAccessHeading">Manage module access</h2>
+              <p>Select a user to review and change access to configured courses.</p>
+            </div>
+          </div>
+          <div class="admin-access-layout">
+            <aside class="admin-roster" aria-labelledby="adminRosterHeading">
+              <div class="section-heading-row"><h3 id="adminRosterHeading">User directory</h3><span id="adminAccessUserCount" class="muted"></span></div>
+              <label for="adminAccessFilter"><span class="sr-only">Filter users</span><input id="adminAccessFilter" type="search" maxlength="100" placeholder="Filter users"></label>
+              <div id="adminAccessRoster" class="admin-roster-list"></div>
+            </aside>
+            <section class="admin-access-workspace" aria-labelledby="adminAccessUserHeading">
+              <div class="section-heading-row">
+                <div><p class="eyebrow">Selected identity</p><h3 id="adminAccessUserHeading">Select a user</h3></div>
+                <span id="adminAccessUserRole" class="status-pill"></span>
+              </div>
+              <p id="adminAccessDescription" class="muted">Choose an approved user from the roster to configure course access.</p>
+              <div id="adminAccessCourseGrid" class="admin-access-course-grid"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="adminContentPanel" class="admin-section-panel hidden" aria-labelledby="adminContentHeading">
+          <div class="admin-layout-heading">
+            <div>
+              <p class="eyebrow">Content management</p>
+              <h2 id="adminContentHeading">Content library layout</h2>
+              <p>Review the installed study and assessment catalog. Editing remains intentionally unavailable in this release.</p>
+            </div>
+            <span class="status-pill">Read-only</span>
+          </div>
+          <div class="admin-content-layout">
+            <aside class="admin-content-library">
+              <div class="section-heading-row"><h3>Installed subjects</h3><span id="adminContentCourseCount" class="muted"></span></div>
+              <div id="adminContentCourseList" class="admin-content-list"></div>
+            </aside>
+            <section class="admin-content-preview">
+              <p class="eyebrow">Catalog structure</p>
+              <h3 id="adminContentPreviewHeading">Select a subject</h3>
+              <p id="adminContentPreviewDescription" class="muted">Course modules, lessons, flashcards, and assessment bundles appear here.</p>
+              <div id="adminContentMetricGrid" class="admin-content-metrics"></div>
+              <div class="content-boundary-note"><strong>Release boundary</strong><p>The live content editor is excluded. This layout exposes catalog structure without adding unsupported write operations.</p></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="adminAnalyticsPanel" class="admin-section-panel hidden" aria-labelledby="adminAnalyticsHeading">
+          <div class="admin-layout-heading">
+            <div>
+              <p class="eyebrow">System overview</p>
+              <h2 id="adminAnalyticsHeading">Analytics and audit</h2>
+              <p>Operational totals derived from the current owner datasets and recorded administrative activity.</p>
+            </div>
+          </div>
+          <div class="admin-analytics-grid">
+            <article><span>Approved users</span><strong id="adminAnalyticsUsers">0</strong></article>
+            <article><span>Pending approvals</span><strong id="adminAnalyticsPending">0</strong></article>
+            <article><span>Installed subjects</span><strong id="adminAnalyticsCourses">0</strong></article>
+          </div>
+
+        <section class="approved-identities-section" aria-labelledby="adminAuditHeading">
+          <div class="page-heading">
+            <p class="eyebrow">Accountability</p>
+            <h2 id="adminAuditHeading">Administrative activity</h2>
+            <p>Successful owner actions are recorded without authentication secrets.</p>
+          </div>
+          <div class="admin-summary" aria-live="polite">
+            <strong id="adminAuditCount">0 events</strong>
+            <span id="adminAuditStatus">Loading activity…</span>
+          </div>
+          <div id="adminAuditList" class="audit-list"></div>
+          <div class="admin-pagination" aria-label="Administrative activity pagination">
+            <button id="previousAuditPage" class="ghost" type="button">Previous</button>
+            <span id="auditPageStatus">Page 1</span>
+            <button id="nextAuditPage" class="ghost" type="button">Next</button>
+          </div>
+        </section>
+        </section>
+      </section>
+
+      <section id="studyView" class="view hidden">
+        <div class="page-heading heading-with-action">
+          <div>
+            <p class="eyebrow" id="studyGuideLabel">Course study guide</p>
+            <h1>Choose a study module</h1>
+            <p>Lessons and flashcard progress are saved to your learner profile.</p>
+          </div>
+          <button id="studyBackButton" class="ghost" type="button">Back to dashboard</button>
+        </div>
+        <div id="chapterGrid" class="chapter-list" aria-live="polite"></div>
+      </section>
+
+      <section id="chapterView" class="view hidden">
+        <nav class="context-nav" aria-label="Breadcrumb">
+          <button id="chapterBackButton" class="text-button" type="button">Study modules</button>
+          <span aria-hidden="true">/</span>
+          <span id="chapterBreadcrumb">Chapter</span>
+        </nav>
+        <header class="chapter-overview-header">
+          <div>
+            <p class="eyebrow" id="chapterNumber">Chapter</p>
+            <h1 id="chapterTitle" tabindex="-1"></h1>
+            <p id="chapterSummary" class="lede"></p>
+          </div>
+          <div class="chapter-actions">
+            <span id="chapterStatus" class="status-pill">Not started</span>
+            <button id="completeChapterButton" class="primary" type="button">Mark chapter complete</button>
+          </div>
+        </header>
+
+        <div class="chapter-overview-layout">
+          <section class="chapter-lessons-panel" aria-labelledby="chapterLessonsHeading">
+            <div class="section-heading-row">
+              <div>
+                <p class="eyebrow">Deep study</p>
+                <h2 id="chapterLessonsHeading">Lessons</h2>
+              </div>
+              <span id="chapterLessonCount" class="card-counter"></span>
+            </div>
+            <div id="lessonList" class="lesson-list" aria-live="polite"></div>
+          </section>
+
+          <aside class="chapter-tools-panel">
+            <section class="chapter-objectives-panel">
+              <p id="chapterOutcomesLabel" class="eyebrow">Module outcomes</p>
+              <h2>Learning objectives</h2>
+              <ul id="chapterObjectives" class="check-list"></ul>
+            </section>
+            <section class="study-tool-list" aria-label="Study tools">
+              <button id="continueLessonButton" class="study-tool-card primary-tool" type="button">
+                <span><strong>Continue lesson</strong><small>Read one focused lesson at a time</small></span>
+                <span aria-hidden="true">&rarr;</span>
+              </button>
+              <button id="openFlashcardsButton" class="study-tool-card" type="button">
+                <span><strong>Flashcard session</strong><small id="chapterFlashcardSummary">Review key ideas</small></span>
+                <span aria-hidden="true">&rarr;</span>
+              </button>
+              <button id="openGroundedButton" class="study-tool-card" type="button">
+                <span><strong id="openGroundedLabel">Ask this module</strong><small id="openGroundedDescription">Search the module's indexed evidence</small></span>
+                <span aria-hidden="true">&rarr;</span>
+              </button>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section id="lessonView" class="view hidden">
+        <nav class="context-nav" aria-label="Breadcrumb">
+          <button id="lessonBackButton" class="text-button" type="button">Chapter overview</button>
+          <span aria-hidden="true">/</span>
+          <span id="lessonBreadcrumbChapter">Chapter</span>
+          <span aria-hidden="true">/</span>
+          <span id="lessonBreadcrumbPosition" aria-current="page">Lesson</span>
+        </nav>
+        <div class="lesson-reader-layout">
+          <article class="lesson-reader">
+            <header class="lesson-reader-header">
+              <p class="eyebrow" id="lessonPosition">Lesson</p>
+              <h1 id="lessonTitle" tabindex="-1"></h1>
+              <p id="lessonChapterTitle" class="lede"></p>
+            </header>
+            <div id="lessonContent" class="lesson-content"></div>
+            <nav class="lesson-navigation" aria-label="Lesson navigation">
+              <button id="previousLesson" class="ghost" type="button">Previous lesson</button>
+              <button id="nextLesson" class="primary" type="button">Next lesson</button>
+            </nav>
+          </article>
+          <aside class="lesson-contents-panel" aria-labelledby="lessonContentsHeading">
+            <p id="lessonContentsEyebrow" class="eyebrow">In this module</p>
+            <h2 id="lessonContentsHeading">Contents</h2>
+            <div id="lessonContents" class="lesson-contents"></div>
+            <button id="lessonBookmarkButton" class="ghost" type="button" aria-pressed="false">Bookmark lesson</button>
+            <button id="lessonFlashcardsButton" class="ghost" type="button">Review flashcards</button>
+          </aside>
+        </div>
+      </section>
+
+      <section id="resultsView" class="view hidden">
+        <nav class="context-nav" aria-label="Breadcrumb">
+          <button id="resultsBackButton" class="text-button" type="button">Course dashboard</button>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page">Assessment results</span>
+        </nav>
+        <header class="results-heading">
+          <div>
+            <p id="resultsEyebrow" class="eyebrow">Assessment complete</p>
+            <h1 id="resultsTitle" tabindex="-1">Results</h1>
+            <p id="resultsSubtitle" class="lede"></p>
+          </div>
+          <div class="results-actions">
+            <button id="retakeAssessmentButton" class="primary" type="button">Retake bundle</button>
+          </div>
+        </header>
+        <div class="results-metric-grid">
+          <article><span>Score</span><strong id="resultsScore">—</strong></article>
+          <article><span>Correct</span><strong id="resultsCorrect">—</strong></article>
+          <article><span>Incorrect</span><strong id="resultsIncorrect">—</strong></article>
+          <article><span>Status</span><strong id="resultsStatus">—</strong></article>
+        </div>
+        <div class="result-filter-group" role="group" aria-label="Filter reviewed questions">
+          <button class="ghost result-filter is-active" type="button" data-result-filter="all" aria-pressed="true">All</button>
+          <button class="ghost result-filter" type="button" data-result-filter="incorrect" aria-pressed="false">Incorrect</button>
+          <button class="ghost result-filter" type="button" data-result-filter="unanswered" aria-pressed="false">Unanswered</button>
+        </div>
+        <div id="resultQuestionList" class="result-question-list" aria-live="polite"></div>
+      </section>
+
+      <section id="flashcardView" class="view hidden">
+        <nav class="context-nav" aria-label="Breadcrumb">
+          <button id="flashcardBackButton" class="text-button" type="button">Chapter overview</button>
+          <span aria-hidden="true">/</span>
+          <span id="flashcardBreadcrumbChapter">Chapter</span>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page">Flashcards</span>
+        </nav>
+        <div class="focus-study-shell">
+          <header class="focus-study-heading">
+            <div>
+              <p class="eyebrow">Active recall</p>
+              <h1 id="flashcardViewTitle" tabindex="-1">Flashcard session</h1>
+              <p>Reveal the answer, assess your recall, and move through the deck at your own pace.</p>
+            </div>
+            <span id="flashcardCount" class="card-counter"></span>
+          </header>
+          <button id="flashcard" class="flashcard flashcard-focus" type="button" aria-label="Reveal flashcard answer">
+            <span id="flashcardState" class="status-pill"></span>
+            <span id="flashcardPrompt" class="flashcard-prompt"></span>
+            <span id="flashcardAnswer" class="flashcard-answer hidden"></span>
+            <span id="flashcardRevealHint" class="reveal-hint">Reveal answer</span>
+          </button>
+          <div id="flashcardAssessment" class="assessment hidden">
+            <button id="flashcardAgain" class="ghost" type="button">Needs review</button>
+            <button id="flashcardKnown" class="primary" type="button">Got it</button>
+          </div>
+          <div class="flashcard-navigation">
+            <button id="previousFlashcard" class="ghost" type="button">Previous</button>
+            <button id="nextFlashcard" class="ghost" type="button">Next</button>
+          </div>
+          <p id="flashcardCitation" class="citation"></p>
+        </div>
+      </section>
+
+      <section id="groundedView" class="view hidden">
+        <nav class="context-nav" aria-label="Breadcrumb">
+          <button id="groundedBackButton" class="text-button" type="button">Chapter overview</button>
+          <span aria-hidden="true">/</span>
+          <span id="groundedBreadcrumbChapter">Chapter</span>
+          <span aria-hidden="true">/</span>
+          <span aria-current="page">Grounded explanation</span>
+        </nav>
+        <section class="grounded-workspace">
+          <header class="focus-study-heading">
+            <div>
+              <p class="eyebrow">Project-aware evidence</p>
+              <h1 id="groundedViewTitle" tabindex="-1">Ask this chapter</h1>
+              <p id="groundedViewDescription">Search only this chapter's indexed course pages.</p>
+            </div>
+          </header>
+          <form id="groundedQuestionForm" class="grounded-question-form">
+            <label for="groundedQuestion">Your question</label>
+            <div class="question-form-row">
+              <input id="groundedQuestion" type="text" maxlength="500" required autocomplete="off" placeholder="Example: Why is segmentation important?">
+              <button class="primary" type="submit">Find evidence</button>
+            </div>
+          </form>
+          <div id="groundedAnswer" class="grounded-answer hidden" aria-live="polite"></div>
+        </section>
+      </section>
+
+      <!-- QUESTION VIEW -->
+      <section id="questionView" class="view hidden">
+        <div class="question-toolbar">
+          <button id="questionBackButton" class="ghost" type="button">Back to dashboard</button>
+          <div class="mobile-session-summary" aria-label="Current session status">
+            <span>Timer <strong id="mobileTimerMetric">--:--</strong></span>
+            <span>Answered <strong id="mobileAnsweredMetric">0</strong></span>
+          </div>
+        </div>
+        <div class="workspace">
+          <div class="question-head">
+            <div>
+              <p class="eyebrow" id="questionModeLabel">Practice</p>
+              <h2 id="questionText">Loading…</h2>
+              <div class="source" id="sourceText"></div>
+            </div>
+            <div class="qcount" id="questionCount"></div>
+          </div>
+          <div class="question-body">
+            <div id="examNotice" class="notice hidden"></div>
+            <div id="choices" class="choices"></div>
+            <div id="feedback" class="feedback"></div>
+          </div>
+          <div class="actions">
+            <div class="action-group">
+              <button id="previousQuestion" type="button">Previous</button>
+              <button id="nextQuestion" type="button">Next</button>
+            </div>
+            <div class="action-group">
+              <button id="submitAnswer" class="primary" type="button">Submit Answer</button>
+              <button id="finishExam" class="danger hidden" type="button">Finish Exam</button>
+            </div>
+          </div>
+        </div>
+        <aside class="side">
+          <section class="side-section">
+            <p class="side-title">Session</p>
+            <div class="metric-grid">
+              <div class="metric"><span>Mode</span><strong id="modeMetric">Practice</strong></div>
+              <div class="metric"><span>Timer</span><strong id="timerMetric">--:--</strong></div>
+              <div class="metric"><span>Answered</span><strong id="answeredMetric">0</strong></div>
+              <div class="metric"><span>Score</span><strong id="scoreMetric">0%</strong></div>
+            </div>
+          </section>
+          <section class="side-section">
+            <p class="side-title" id="sessionFormatTitle">Exam Format</p>
+            <div class="muted" id="examMeta"></div>
+          </section>
+          <section class="side-section">
+            <p class="side-title">Question Map</p>
+            <div class="question-list" id="questionMap"></div>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <div id="searchOverlay" class="search-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="searchDialogTitle">
+      <section class="search-dialog">
+        <div class="section-heading-row">
+          <div>
+            <p class="eyebrow">Current course</p>
+            <h2 id="searchDialogTitle">Search study content and bundles</h2>
+          </div>
+          <button id="closeSearchButton" class="ghost" type="button" aria-label="Close search">Close</button>
+        </div>
+        <form id="globalSearchForm" class="global-search-form">
+          <label for="globalSearchInput">Search</label>
+          <div class="question-form-row">
+            <input id="globalSearchInput" type="search" minlength="2" maxlength="100" required autocomplete="off" placeholder="Lessons, flashcards, or bundles">
+            <button class="primary" type="submit">Search</button>
+          </div>
+        </form>
+        <p id="globalSearchStatus" class="muted" aria-live="polite">Enter at least two characters.</p>
+        <div id="globalSearchResults" class="search-results"></div>
+      </section>
+    </div>
+
+    <!-- LOADING OVERLAY -->
+    <div id="loadingOverlay" class="overlay hidden" role="status" aria-live="polite">
+      <div class="overlay-content">
+        <div class="submission-progress" aria-hidden="true"><span></span></div>
+        <p>Submitting your exam…</p>
+      </div>
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+  </div>
+</body>
+</html>
