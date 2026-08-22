@@ -7,10 +7,12 @@ The repository has two workflows:
 - `.github/workflows/deploy-ec2.yml` runs after CI for pushes to `main`, or
   manually through **Actions → Deploy to EC2 → Run workflow**.
 
-The deployment workflow uploads an archive of the committed tree. The server
-keeps immutable releases under `/opt/security-study/releases` and atomically
-switches `/opt/security-study/current`. Runtime data, the virtual environment,
-the learner database, and the populated environment file stay outside releases.
+The deployment workflow uploads an archive of the committed tree. CI verifies
+that the archive contains application/runtime scripts and excludes `content/`.
+The server keeps immutable releases under `/opt/security-study/releases` and
+atomically switches `/opt/security-study/current`. Persistent study content,
+runtime data, the virtual environment, the learner database, and the populated
+environment file stay outside releases.
 
 ## Safety gate before secrets
 
@@ -50,18 +52,23 @@ The remote script requires:
 
 - `/etc/security-study/gdsa-practice.env`;
 - `/opt/security-study/venv/bin/gunicorn`;
+- `/opt/security-study/data/content`, or a valid first-migration source in
+  `current/content`, with all required catalogs and source indexes;
 - `/opt/security-study/data/gdsa-practice.sqlite3`; and
 - `/opt/security-study/data/projects_index.jsonl`.
 
 An automatic push deployment never opts into migration. While `current` is an
 ordinary directory it will fail safely. For the one-time conversion, manually
-dispatch the workflow with `adopt_existing_current` enabled. The script
-validates the existing backend and frontend, preserves the entire directory as
-a baseline release, activates the new release as a symlink, and restores the
-ordinary directory if activation, restart, or health checks fail.
+dispatch the workflow with `adopt_existing_current` enabled. If persistent
+content does not exist yet, the script first validates and copies the existing
+`current/content` without deleting it. It then validates the persistent bundle,
+links it into the new release, validates the existing backend and frontend,
+preserves the entire directory as a baseline release, activates the new release
+as a symlink, and restores the ordinary directory if activation, restart, or
+health checks fail.
 
 After successful adoption, leave the input disabled. Normal deployments switch
 the `current` symlink atomically, restart `gdsa-practice.service`, check both
 Gunicorn and Nginx health endpoints, and restore the previous symlink on
 failure. Deployments do not import question banks, rebuild the RAG index, or
-modify the learner database.
+modify the learner database or study content.

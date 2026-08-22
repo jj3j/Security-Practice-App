@@ -9,7 +9,9 @@ The hosted application is split into two independent components:
 
 - `frontend/`: static HTML, CSS, and JavaScript served by Nginx.
 - `backend/`: a WSGI API served by Gunicorn with a read-only SQLite runtime.
-- `content/`: validated, immutable study guides and flashcards.
+- `content/`: locally generated study guides and flashcards, excluded from Git;
+  production provisions them independently under
+  `/opt/security-study/data/content`.
 
 The local authoring source remains:
 

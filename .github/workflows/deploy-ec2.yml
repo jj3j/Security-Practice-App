@@ -37,7 +37,9 @@ jobs:
           persist-credentials: false
 
       - name: Build immutable release archive
-        run: git archive --format=tar.gz --output=release.tar.gz HEAD
+        run: |
+          git archive --format=tar.gz --output=release.tar.gz HEAD
+          bash deploy/scripts/validate-release-archive.sh release.tar.gz
 
       - name: Configure SSH
         id: ssh

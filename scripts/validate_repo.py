@@ -33,6 +33,8 @@ REQUIRED_FILES = (
     "deploy/environment/gdsa-practice.env.example",
     "deploy/scripts/deploy-release.sh",
     "deploy/scripts/health-check.sh",
+    "deploy/scripts/validate-release-archive.sh",
+    "deploy/scripts/validate-study-content.py",
     "docs/EC2_DEPLOYMENT.md",
     "docs/GITHUB_ACTIONS.md",
     "docs/GOOGLE_OIDC_SETUP.md",

@@ -17,6 +17,7 @@ The required paths are:
 ```text
 /opt/security-study/current
 /opt/security-study/releases
+/opt/security-study/data/content
 /opt/security-study/venv
 /opt/security-study/data/gdsa-practice.sqlite3
 /opt/security-study/data/projects_index.jsonl
@@ -24,10 +25,12 @@ The required paths are:
 /var/lib/gdsa-practice/learner.sqlite3
 ```
 
-Application releases never contain or replace either SQLite database, the RAG
-index, the virtual environment, or the populated environment file. The
-application tree is read-only to the service; learner state remains writable
-under `/var/lib/gdsa-practice` through `StateDirectory=gdsa-practice`.
+Application release archives do not contain `content/`. Each release instead
+contains a `content` symlink to `/opt/security-study/data/content`. Releases
+never replace either SQLite database, the SEC530 RAG index, the virtual
+environment, or the populated environment file. The application tree is
+read-only to the service; learner state remains writable under
+`/var/lib/gdsa-practice` through `StateDirectory=gdsa-practice`.
 
 For a new host, create the runtime account and directories with the same
 ownership and permissions as the active deployment:
@@ -49,9 +52,26 @@ or changing them blindly.
 Install validated, read-only runtime data at:
 
 ```text
+/opt/security-study/data/content/sec530-study.json
+/opt/security-study/data/content/cissp-study.json
+/opt/security-study/data/content/cissp-study-sources.jsonl
+/opt/security-study/data/content/gmon-study.json
+/opt/security-study/data/content/gmon-study-sources.jsonl
 /opt/security-study/data/gdsa-practice.sqlite3
 /opt/security-study/data/projects_index.jsonl
 ```
+
+Provision study content independently of Git releases. Keep the content files
+owned by `root:gdsa-practice`, with directories mode `0750` and files mode
+`0640`. The deployment validates all three catalogs and the CISSP/GMON source
+indexes before activating a release. It does not import or modify content.
+Existing environment values under `/opt/security-study/current/content/...`
+remain valid because every release links that path to persistent storage.
+
+For the first adoption only, leave `/opt/security-study/data/content` absent if
+the deployment should copy the validated existing `current/content`. An empty
+or incomplete persistent directory fails validation and is never filled from a
+release implicitly.
 
 The populated environment file belongs at
 `/etc/security-study/gdsa-practice.env`, owned by
@@ -105,12 +125,17 @@ The deployment script then:
    `current/frontend/index.html` exist;
 2. builds the new immutable release under
    `/opt/security-study/releases/<release-id>`;
-3. moves the complete ordinary `current` directory, including its backup
+3. if persistent content does not exist, validates and copies the existing
+   `current/content` into `/opt/security-study/data/content`, leaving the
+   original copy untouched;
+4. validates all required persistent study catalogs and indexes;
+5. links the release's `content` path to persistent storage;
+6. moves the complete ordinary `current` directory, including its backup
    directories, intact to
    `/opt/security-study/releases/baseline-before-<release-id>`;
-4. atomically activates the new release through the `current` symlink;
-5. restarts `gdsa-practice.service`; and
-6. checks both `http://127.0.0.1:8765/health` and
+7. atomically activates the new release through the `current` symlink;
+8. restarts `gdsa-practice.service` so catalogs are reloaded; and
+9. checks both `http://127.0.0.1:8765/health` and
    `http://127.0.0.1/health`.
 
 If activation, restart, or either health check fails, the new `current`
@@ -149,4 +174,4 @@ sudo mv -Tf /opt/security-study/current.next /opt/security-study/current
 sudo systemctl restart gdsa-practice.service
 ```
 
-Rollback does not modify either SQLite database.
+Rollback does not modify either SQLite database or persistent study content.

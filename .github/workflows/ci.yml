@@ -31,5 +31,10 @@ jobs:
       - name: Validate repository data and configuration
         run: python scripts/validate_repo.py
 
+      - name: Validate immutable release archive contract
+        run: |
+          git archive --format=tar.gz --output=release.tar.gz HEAD
+          bash deploy/scripts/validate-release-archive.sh release.tar.gz
+
       - name: Compile Python sources
         run: python -m compileall -q backend scripts

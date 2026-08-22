@@ -25,6 +25,7 @@ readonly ENV_FILE="/etc/security-study/gdsa-practice.env"
 readonly RELEASES_DIR="${DEPLOY_ROOT}/releases"
 readonly CURRENT_LINK="${DEPLOY_ROOT}/current"
 readonly VENV_DIR="${DEPLOY_ROOT}/venv"
+readonly CONTENT_DIR="${DEPLOY_ROOT}/data/content"
 readonly RELEASE_DIR="${RELEASES_DIR}/${RELEASE_ID}"
 
 die() {
@@ -76,8 +77,12 @@ elif [[ "$adopt_existing_current" == true ]]; then
 fi
 
 readonly STAGING_DIR="$(mktemp -d /tmp/gdsa-practice-release.XXXXXX)"
+content_migration_dir=""
 cleanup() {
     rm -rf -- "$STAGING_DIR"
+    if [[ -n "$content_migration_dir" && -d "$content_migration_dir" ]]; then
+        rm -rf -- "$content_migration_dir"
+    fi
     rm -f -- "$ARCHIVE"
 }
 trap cleanup EXIT
@@ -85,11 +90,13 @@ trap cleanup EXIT
 while IFS= read -r member; do case "$member" in /*|../*|*/../*|..|*/..) die "unsafe archive member: ${member}" ;; esac; done < <(tar --list --gzip --file "$ARCHIVE")
 
 tar --extract --gzip --file "$ARCHIVE" --directory "$STAGING_DIR" --no-same-owner --no-same-permissions
-for required_path in backend/requirements.txt backend/practice_api.py frontend/index.html content; do [[ -e "$STAGING_DIR/$required_path" ]] || die "release archive is missing ${required_path}"; done
+for required_path in backend/requirements.txt backend/practice_api.py frontend/index.html deploy/scripts/health-check.sh deploy/scripts/validate-study-content.py; do [[ -f "$STAGING_DIR/$required_path" ]] || die "release archive is missing ${required_path}"; done
+[[ ! -e "$STAGING_DIR/content" && ! -L "$STAGING_DIR/content" ]] \
+    || die "release archive must not contain persistent study content"
 
 install -d -o root -g root -m 0755 "$DEPLOY_ROOT" "$RELEASES_DIR"
 install -d -o root -g root -m 0755 "$RELEASE_DIR"
-for item in backend frontend content deploy scripts docs README.md .gitattributes; do if [[ -e "$STAGING_DIR/$item" ]]; then cp -a -- "$STAGING_DIR/$item" "$RELEASE_DIR/"; fi; done
+for item in backend frontend deploy scripts docs README.md .gitattributes; do if [[ -e "$STAGING_DIR/$item" ]]; then cp -a -- "$STAGING_DIR/$item" "$RELEASE_DIR/"; fi; done
 chown -R root:root "$RELEASE_DIR"
 find "$RELEASE_DIR" -type d -exec chmod 0755 {} +
 find "$RELEASE_DIR" -type f -exec chmod 0644 {} +
@@ -107,6 +114,50 @@ fi
 
 [[ -x "$VENV_DIR/bin/gunicorn" ]] \
     || die "Gunicorn was not installed into virtual environment: ${VENV_DIR}"
+
+validate_content() {
+    "$VENV_DIR/bin/python" "$RELEASE_DIR/deploy/scripts/validate-study-content.py" "$1"
+}
+
+if [[ -e "$CONTENT_DIR" || -L "$CONTENT_DIR" ]]; then
+    [[ -d "$CONTENT_DIR" && ! -L "$CONTENT_DIR" ]] \
+        || die "persistent study content path must be an ordinary directory: ${CONTENT_DIR}"
+    validate_content "$CONTENT_DIR" \
+        || die "persistent study content is incomplete or invalid: ${CONTENT_DIR}"
+else
+    readonly EXISTING_CONTENT_DIR="${CURRENT_LINK}/content"
+    [[ -d "$EXISTING_CONTENT_DIR" ]] \
+        || die "persistent study content is missing and no existing current/content can be migrated"
+    validate_content "$EXISTING_CONTENT_DIR" \
+        || die "existing current/content is incomplete or invalid; refusing migration"
+
+    content_migration_dir="$(mktemp -d "${DEPLOY_ROOT}/data/.content-migration.XXXXXX")"
+    cp -a -- "$EXISTING_CONTENT_DIR/." "$content_migration_dir/" \
+        || die "failed to copy existing study content into migration staging"
+    chown -R root:gdsa-practice "$content_migration_dir"
+    find "$content_migration_dir" -type d -exec chmod 0750 {} +
+    find "$content_migration_dir" -type f -exec chmod 0640 {} +
+    validate_content "$content_migration_dir" \
+        || die "copied study content failed validation; existing content was not changed"
+    mv -T -- "$content_migration_dir" "$CONTENT_DIR" \
+        || die "failed to activate persistent study content directory"
+    content_migration_dir=""
+    echo "Copied existing current/content to persistent storage: ${CONTENT_DIR}"
+fi
+
+command -v runuser >/dev/null 2>&1 || die "runuser is not installed"
+for required_content_file in \
+    sec530-study.json \
+    cissp-study.json \
+    cissp-study-sources.jsonl \
+    gmon-study.json \
+    gmon-study-sources.jsonl; do
+    runuser --user gdsa-practice -- test -r "$CONTENT_DIR/$required_content_file" \
+        || die "service account cannot read persistent study content: ${required_content_file}"
+done
+
+ln -s -- "$CONTENT_DIR" "$RELEASE_DIR/content" \
+    || die "failed to link release to persistent study content"
 
 if [[ "$current_kind" == "directory" ]]; then
     mv -- "$CURRENT_LINK" "$baseline_release" \
