@@ -31,6 +31,9 @@ jobs:
       - name: Test deployment state transitions
         run: bash deploy/scripts/test-deployment.sh
 
+      - name: Test GMON question-bank integration
+        run: python -m unittest discover -s tests -v
+
       - name: Validate repository data and configuration
         run: python scripts/validate_repo.py
 

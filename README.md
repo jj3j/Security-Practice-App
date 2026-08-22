@@ -13,23 +13,28 @@ The hosted application is split into two independent components:
   production provisions them independently under
   `/opt/security-study/data/content`.
 
-The local authoring source remains:
+The local authoring sources remain:
 
 ```text
 Study Projects/SEC530 - GDSA/sample_questions/questions.jsonl
 Study Projects/CISSP/Sample Questions/questions.jsonl
+Study Projects/GIAC GMON/sample_questions/Questions
+Study Projects/GIAC GMON/sample_questions/Answers
 ```
 
-The application also includes the Study-only `GIAC GMON` course. Its immutable
-catalog and dedicated retrieval evidence are:
+The application includes the `GIAC GMON` Study catalog, dedicated retrieval
+evidence, and a committed release question bank:
 
 ```text
 practice_app/content/gmon-study.json
 practice_app/content/gmon-study-sources.jsonl
+practice_app/question_banks/gmon-questions.jsonl
 ```
 
-GMON intentionally has no Practice or Exam pathway because no GMON question
-bank has been supplied. Its five Study units map to SEC511 Books 511.1-511.5.
+GMON provides four Practice bundles and four Exam bundles of 82 questions each.
+Its five Study units map to SEC511 Books 511.1-511.5. The release bank is a
+deterministic build artifact from the four validated authoring exams; edit the
+authoring source and regenerate it instead of hand-editing the JSONL.
 
 Learner identity, progress, flashcard state, and exam attempts use a separate
 writable SQLite database. Production stores it at:
@@ -133,7 +138,7 @@ Create a runtime database:
   --skip-invalid
 ```
 
-Create a multi-course runtime database for SEC530 and CISSP:
+Create a multi-course runtime database for SEC530, CISSP, and GMON:
 
 ```powershell
 & "C:\Users\Surya\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B `
@@ -141,6 +146,7 @@ Create a multi-course runtime database for SEC530 and CISSP:
   --database "<destination>\gdsa-practice.sqlite3" `
   --bank "SEC530 - GDSA=Study Projects\SEC530 - GDSA\sample_questions\questions.jsonl" `
   --bank "CISSP=Study Projects\CISSP\Sample Questions\questions.jsonl" `
+  --bank "GIAC GMON=practice_app\question_banks\gmon-questions.jsonl" `
   --skip-invalid
 ```
 
@@ -164,6 +170,7 @@ Run the same dependency-free repository validation used by GitHub Actions:
 
 ```powershell
 python scripts\validate_repo.py
+python -m unittest discover -s tests -v
 python -m compileall backend scripts
 ```
 

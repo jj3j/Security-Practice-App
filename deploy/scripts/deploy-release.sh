@@ -135,19 +135,20 @@ trap cleanup EXIT
 while IFS= read -r member; do case "$member" in /*|../*|*/../*|..|*/..) die "unsafe archive member: ${member}" ;; esac; done < <(tar --list --gzip --file "$ARCHIVE")
 
 tar --extract --gzip --file "$ARCHIVE" --directory "$STAGING_DIR" --no-same-owner --no-same-permissions
-for required_path in backend/requirements.txt backend/practice_api.py frontend/index.html deploy/scripts/health-check.sh deploy/scripts/validate-study-content.py; do [[ -f "$STAGING_DIR/$required_path" ]] || die "release archive is missing ${required_path}"; done
+for required_path in backend/requirements.txt backend/practice_api.py backend/merge_question_bank.py frontend/index.html deploy/scripts/health-check.sh deploy/scripts/validate-study-content.py question_banks/gmon-questions.jsonl; do [[ -f "$STAGING_DIR/$required_path" ]] || die "release archive is missing ${required_path}"; done
 [[ ! -e "$STAGING_DIR/content" && ! -L "$STAGING_DIR/content" ]] \
     || die "release archive must not contain persistent study content"
 
 install -d -o root -g root -m 0755 "$DEPLOY_ROOT" "$RELEASES_DIR"
 install -d -o root -g root -m 0755 "$RELEASE_DIR"
 release_dir_created=true
-for item in backend frontend deploy scripts docs README.md .gitattributes; do if [[ -e "$STAGING_DIR/$item" ]]; then cp -a -- "$STAGING_DIR/$item" "$RELEASE_DIR/"; fi; done
+for item in backend frontend deploy scripts docs question_banks README.md .gitattributes; do if [[ -e "$STAGING_DIR/$item" ]]; then cp -a -- "$STAGING_DIR/$item" "$RELEASE_DIR/"; fi; done
 chown -R root:root "$RELEASE_DIR"
 find "$RELEASE_DIR" -type d -exec chmod 0755 {} +
 find "$RELEASE_DIR" -type f -exec chmod 0644 {} +
 
 command -v python3 >/dev/null 2>&1 || die "python3 is not installed"
+command -v runuser >/dev/null 2>&1 || die "runuser is not installed"
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
     python3 -m venv "$VENV_DIR" || die "failed to create Python virtual environment: ${VENV_DIR}"
@@ -160,6 +161,17 @@ fi
 
 [[ -x "$VENV_DIR/bin/gunicorn" ]] \
     || die "Gunicorn was not installed into virtual environment: ${VENV_DIR}"
+
+"$VENV_DIR/bin/python" "$RELEASE_DIR/backend/merge_question_bank.py" \
+    --source "$RELEASE_DIR/question_banks/gmon-questions.jsonl" \
+    --database "${DEPLOY_ROOT}/data/gdsa-practice.sqlite3" \
+    --project "GIAC GMON" \
+    --expected-count 328 \
+    || die "failed to merge the GMON question bank"
+chown root:gdsa-practice "${DEPLOY_ROOT}/data/gdsa-practice.sqlite3"
+chmod 0640 "${DEPLOY_ROOT}/data/gdsa-practice.sqlite3"
+runuser --user gdsa-practice -- test -r "${DEPLOY_ROOT}/data/gdsa-practice.sqlite3" \
+    || die "service account cannot read the merged question database"
 
 validate_content() {
     "$VENV_DIR/bin/python" "$RELEASE_DIR/deploy/scripts/validate-study-content.py" "$1"
@@ -192,7 +204,6 @@ else
     echo "Copied existing current/content to persistent storage: ${CONTENT_DIR}"
 fi
 
-command -v runuser >/dev/null 2>&1 || die "runuser is not installed"
 for required_content_file in \
     sec530-study.json \
     cissp-study.json \

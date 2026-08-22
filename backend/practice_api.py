@@ -57,6 +57,8 @@ GDSA_EXAM_BUNDLE_PREFIX = "gdsa-exam-bundle"
 GDSA_PRACTICE_BUNDLE_PREFIX = "gdsa-practice-bundle"
 CISSP_EXAM_BUNDLE_PREFIX = "cissp-exam-bundle"
 CISSP_PRACTICE_BUNDLE_PREFIX = "cissp-practice-bundle"
+GMON_EXAM_BUNDLE_PREFIX = "gmon-exam-bundle"
+GMON_PRACTICE_BUNDLE_PREFIX = "gmon-practice-bundle"
 
 
 @dataclass(frozen=True)
@@ -831,13 +833,15 @@ class PracticeApi:
                 course_id=GMON_COURSE_ID,
                 title=gmon_title,
                 exam_label="GMON Exam",
-                target_question_count=0,
-                duration_seconds=0,
-                passing_score_percent=0,
+                target_question_count=82,
+                duration_seconds=3 * 60 * 60,
+                passing_score_percent=74,
                 bundle_id=None,
                 study_available=GMON_COURSE_ID in self.study_catalogs,
-                practice_available=False,
-                exam_available=False,
+                practice_label="GMON Practice Exam",
+                practice_target_question_count=82,
+                practice_bundle_prefix=GMON_PRACTICE_BUNDLE_PREFIX,
+                exam_bundle_prefix=GMON_EXAM_BUNDLE_PREFIX,
             ),
         }
     def _course_config(self, course_id: str) -> CourseConfig:

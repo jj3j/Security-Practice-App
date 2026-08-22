@@ -70,5 +70,9 @@ health checks fail.
 After successful adoption, leave the input disabled. Normal deployments switch
 the `current` symlink atomically, restart `gdsa-practice.service`, check both
 Gunicorn and Nginx health endpoints, and restore the previous symlink on
-failure. Deployments do not import question banks, rebuild the RAG index, or
-modify the learner database or study content.
+failure. Each deployment atomically reconciles the committed 328-question GMON
+bank into the persistent question database while preserving all other course
+banks.
+The operation is idempotent, so a failed adoption can be retried safely.
+Deployments do not rebuild the RAG index or modify the learner database or study
+content.

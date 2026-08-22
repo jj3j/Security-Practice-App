@@ -25,12 +25,15 @@ The required paths are:
 /var/lib/gdsa-practice/learner.sqlite3
 ```
 
-Application release archives do not contain `content/`. Each release instead
-contains a `content` symlink to `/opt/security-study/data/content`. Releases
-never replace either SQLite database, the SEC530 RAG index, the virtual
-environment, or the populated environment file. The application tree is
-read-only to the service; learner state remains writable under
-`/var/lib/gdsa-practice` through `StateDirectory=gdsa-practice`.
+Application release archives do not contain `content/` or either SQLite
+database. Each release instead contains a `content` symlink to
+`/opt/security-study/data/content`. During deployment, the committed GMON bank
+is atomically reconciled into the persistent question database while every
+other course bank is preserved. The learner database, SEC530 RAG index, virtual
+environment, and populated environment file are not replaced. The application
+tree and question database are read-only to the service; learner state remains
+writable under `/var/lib/gdsa-practice` through
+`StateDirectory=gdsa-practice`.
 
 For a new host, create the runtime account and directories with the same
 ownership and permissions as the active deployment:
@@ -64,7 +67,9 @@ Install validated, read-only runtime data at:
 Provision study content independently of Git releases. Keep the content files
 owned by `root:gdsa-practice`, with directories mode `0750` and files mode
 `0640`. The deployment validates all three catalogs and the CISSP/GMON source
-indexes before activating a release. It does not import or modify content.
+indexes before activating a release. It also validates and idempotently merges
+the committed 328-question GMON bank into the question database. It does not
+modify study content.
 Existing environment values under `/opt/security-study/current/content/...`
 remain valid because every release links that path to persistent storage.
 
@@ -125,19 +130,21 @@ The deployment script then:
    `current/frontend/index.html` exist;
 2. builds the new immutable release under
    `/opt/security-study/releases/<release-id>`;
-3. if persistent content does not exist, validates and copies the existing
+3. validates and atomically reconciles the committed GMON bank into the
+   persistent question database while preserving every other course bank;
+4. if persistent content does not exist, validates and copies the existing
    `current/content` into `/opt/security-study/data/content`, leaving the
    original copy untouched;
    if persistent content already exists after a failed attempt, validates and
    reuses it without overwriting or repeating the migration;
-4. validates all required persistent study catalogs and indexes;
-5. links the release's `content` path to persistent storage;
-6. moves the complete ordinary `current` directory, including its backup
+5. validates all required persistent study catalogs and indexes;
+6. links the release's `content` path to persistent storage;
+7. moves the complete ordinary `current` directory, including its backup
    directories, intact to
    `/opt/security-study/releases/baseline-before-<release-id>`;
-7. atomically activates the new release through the `current` symlink;
-8. restarts `gdsa-practice.service` so catalogs are reloaded; and
-9. polls both `http://127.0.0.1:8765/health` and
+8. atomically activates the new release through the `current` symlink;
+9. restarts `gdsa-practice.service` so catalogs are reloaded; and
+10. polls both `http://127.0.0.1:8765/health` and
    `http://127.0.0.1/health` every two seconds until both are ready or the
    shared 30-second readiness deadline expires.
 
@@ -148,8 +155,10 @@ the script also attempts to restart the restored application. Once rollback is
 confirmed, only the newly failed release is removed. The script never removes
 the restored production release, the adoption baseline, the release referenced
 by `current`, or persistent data. If rollback safety cannot be confirmed, the
-failed release is left in place and the deployment reports why. Runtime
-databases and persistent study content are untouched.
+failed release is left in place and the deployment reports why. The GMON bank
+reconciliation may remain after an application rollback; it is idempotent and
+does not alter other course banks. The learner database and persistent study
+content are untouched.
 
 On success, `current` is a symlink to the new immutable release and the
 baseline remains in `releases`. Do not enable the adoption input again.
@@ -181,4 +190,6 @@ sudo mv -Tf /opt/security-study/current.next /opt/security-study/current
 sudo systemctl restart gdsa-practice.service
 ```
 
-Rollback does not modify either SQLite database or persistent study content.
+Application rollback does not modify the learner database or persistent study
+content. The compatible GMON bank reconciliation remains in the question
+database and is safely reused by the next deployment attempt.

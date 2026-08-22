@@ -121,9 +121,11 @@ make_release_archive() {
     local archive="$1"
     local source_dir="$TEST_ROOT/archive-source"
     rm -rf -- "$source_dir"
-    mkdir -p "$source_dir/backend" "$source_dir/frontend" "$source_dir/deploy/scripts"
+    mkdir -p "$source_dir/backend" "$source_dir/frontend" "$source_dir/deploy/scripts" "$source_dir/question_banks"
     : > "$source_dir/backend/requirements.txt"
     : > "$source_dir/backend/practice_api.py"
+    : > "$source_dir/backend/merge_question_bank.py"
+    : > "$source_dir/question_banks/gmon-questions.jsonl"
     : > "$source_dir/frontend/index.html"
     : > "$source_dir/deploy/scripts/validate-study-content.py"
     cat > "$source_dir/deploy/scripts/health-check.sh" <<'HEALTH'
@@ -148,6 +150,10 @@ make_deployment_harness() {
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == -m && "${2:-}" == pip ]]; then
+    exit 0
+fi
+if [[ "$*" == *merge_question_bank.py* ]]; then
+    printf 'merged\n' > "${DEPLOY_TEST_MERGE_MARKER:?}"
     exit 0
 fi
 target="${!#}"
@@ -219,6 +225,7 @@ run_deploy() {
     make_release_archive "$archive"
     PATH="$case_root/fake-bin:$PATH" \
     DEPLOY_TEST_HEALTH_RESULT="$health_result" \
+    DEPLOY_TEST_MERGE_MARKER="$case_root/merge-marker" \
         bash "$case_root/deploy-release.sh" "${deploy_args[@]}" "$archive" "$release_id"
 }
 
@@ -240,6 +247,7 @@ test_adoption_retry_and_cleanup() {
     assert_missing "$deploy_root/data/content"
     assert_missing "$deploy_root/releases/adoption-gate"
     rm -f -- /tmp/gdsa-practice-adoption-gate.tar.gz
+    assert_missing "$case_root/merge-marker"
 
 
     set +e
@@ -252,6 +260,7 @@ test_adoption_retry_and_cleanup() {
     assert_missing "$deploy_root/releases/failed-adoption"
     assert_missing "$deploy_root/releases/baseline-before-failed-adoption"
     digest_after_failure="$(content_digest "$persistent")"
+    assert_file "$case_root/merge-marker"
 
     mv -- "$persistent/.valid" "$case_root/persistent-valid-marker"
     set +e

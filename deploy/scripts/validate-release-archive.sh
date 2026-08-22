@@ -27,10 +27,12 @@ done <<< "$members"
 for required_path in \
     backend/requirements.txt \
     backend/practice_api.py \
+    backend/merge_question_bank.py \
     frontend/index.html \
     deploy/scripts/deploy-release.sh \
     deploy/scripts/health-check.sh \
-    deploy/scripts/validate-study-content.py; do
+    deploy/scripts/validate-study-content.py \
+    question_banks/gmon-questions.jsonl; do
     if ! grep -Fxq "$required_path" <<< "$members"; then
         echo "Release archive is missing ${required_path}" >&2
         exit 1
