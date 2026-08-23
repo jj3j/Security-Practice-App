@@ -4,7 +4,14 @@ on:
   push:
     branches:
       - main
+
   workflow_dispatch:
+    inputs:
+      adopt_existing_current:
+        description: One-time adoption of the validated ordinary /opt/security-study/current directory
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -20,7 +27,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   deploy:
-    name: Test OIDC and SSM
+    name: Deploy release through SSM
     needs: ci
     runs-on: ubuntu-latest
 
@@ -42,33 +49,199 @@ jobs:
 
       - name: Verify AWS identity
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+
           aws sts get-caller-identity
 
-      - name: Test SSM access
+      - name: Deploy exact commit through SSM
         env:
           INSTANCE_ID: i-0b7c9112a8d22fb91
+          RELEASE_SHA: ${{ github.sha }}
+          ADOPT_EXISTING_CURRENT: ${{ github.event_name == 'workflow_dispatch' && inputs.adopt_existing_current || false }}
+
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
 
-          COMMAND_ID=$(aws ssm send-command \
-            --region ap-southeast-1 \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["echo GITHUB_OIDC_SSM_OK","whoami","hostname"]' \
-            --query 'Command.CommandId' \
-            --output text)
+          SHORT_RELEASE_ID="${RELEASE_SHA:0:12}"
+          REMOTE_SCRIPT="$RUNNER_TEMP/remote-deploy.sh"
+          SSM_PARAMETERS="$RUNNER_TEMP/ssm-parameters.json"
+          SSM_RESULT="$RUNNER_TEMP/ssm-result.json"
 
-          echo "Command ID: $COMMAND_ID"
+          {
+            echo '#!/usr/bin/env bash'
+            echo 'set -Eeuo pipefail'
+            printf 'RELEASE_SHA=%q\n' "$RELEASE_SHA"
+            printf 'RELEASE_ID=%q\n' "$SHORT_RELEASE_ID"
+            printf 'ADOPT_EXISTING_CURRENT=%q\n' "$ADOPT_EXISTING_CURRENT"
+
+            cat <<'REMOTE_SCRIPT_EOF'
+
+          SOURCE_ARCHIVE="/tmp/security-practice-source-${RELEASE_SHA}.tar.gz"
+          STAGING_DIR="/tmp/security-practice-source-${RELEASE_SHA}"
+          RELEASE_ARCHIVE="/tmp/gdsa-practice-${RELEASE_SHA}.tar.gz"
+
+          cleanup() {
+              rm -rf -- "$STAGING_DIR"
+              rm -f -- "$SOURCE_ARCHIVE"
+              rm -f -- "$RELEASE_ARCHIVE"
+          }
+
+          trap cleanup EXIT
+
+          echo "Deploying commit: ${RELEASE_SHA}"
+          echo "Release ID: ${RELEASE_ID}"
+          echo "Adopt existing current: ${ADOPT_EXISTING_CURRENT}"
+
+          command -v curl >/dev/null 2>&1 || {
+              echo "curl is not installed" >&2
+              exit 1
+          }
+
+          command -v tar >/dev/null 2>&1 || {
+              echo "tar is not installed" >&2
+              exit 1
+          }
+
+          rm -rf -- "$STAGING_DIR"
+          rm -f -- "$SOURCE_ARCHIVE" "$RELEASE_ARCHIVE"
+
+          mkdir -m 0755 -- "$STAGING_DIR"
+
+          echo "Downloading exact GitHub commit..."
+
+          curl \
+              --fail \
+              --location \
+              --silent \
+              --show-error \
+              --retry 3 \
+              --retry-delay 2 \
+              --output "$SOURCE_ARCHIVE" \
+              "https://codeload.github.com/jj3j/Security-Practice-App/tar.gz/${RELEASE_SHA}"
+
+          echo "Checking downloaded source archive..."
+
+          while IFS= read -r member; do
+              case "$member" in
+                  /*|../*|*/../*|..|*/..)
+                      echo "Unsafe GitHub source archive member: ${member}" >&2
+                      exit 1
+                      ;;
+              esac
+          done < <(
+              tar \
+                  --list \
+                  --gzip \
+                  --file "$SOURCE_ARCHIVE"
+          )
+
+          echo "Extracting exact commit..."
+
+          tar \
+              --extract \
+              --gzip \
+              --file "$SOURCE_ARCHIVE" \
+              --directory "$STAGING_DIR" \
+              --strip-components=1 \
+              --no-same-owner \
+              --no-same-permissions
+
+          echo "Building deployment release archive..."
+
+          tar \
+              --create \
+              --gzip \
+              --file "$RELEASE_ARCHIVE" \
+              --directory "$STAGING_DIR" \
+              backend \
+              frontend \
+              deploy \
+              scripts \
+              docs \
+              question_banks \
+              README.md \
+              .gitattributes
+
+          echo "Validating deployment release archive..."
+
+          bash \
+              "$STAGING_DIR/deploy/scripts/validate-release-archive.sh" \
+              "$RELEASE_ARCHIVE"
+
+          echo "Starting deployment..."
+
+          if [[ "$ADOPT_EXISTING_CURRENT" == "true" ]]; then
+              bash \
+                  "$STAGING_DIR/deploy/scripts/deploy-release.sh" \
+                  --adopt-existing-current \
+                  "$RELEASE_ARCHIVE" \
+                  "$RELEASE_ID"
+          else
+              bash \
+                  "$STAGING_DIR/deploy/scripts/deploy-release.sh" \
+                  "$RELEASE_ARCHIVE" \
+                  "$RELEASE_ID"
+          fi
+
+          echo "SSM deployment completed successfully."
+
+          REMOTE_SCRIPT_EOF
+          } > "$REMOTE_SCRIPT"
+
+          jq -Rs '{commands: [.]}' \
+            "$REMOTE_SCRIPT" \
+            > "$SSM_PARAMETERS"
+
+          COMMAND_ID=$(
+            aws ssm send-command \
+              --region ap-southeast-1 \
+              --instance-ids "$INSTANCE_ID" \
+              --document-name "AWS-RunShellScript" \
+              --comment "Deploy Security-Practice-App ${RELEASE_SHA}" \
+              --parameters "file://$SSM_PARAMETERS" \
+              --query 'Command.CommandId' \
+              --output text
+          )
+
+          echo "SSM Command ID: $COMMAND_ID"
+
+          set +e
 
           aws ssm wait command-executed \
             --region ap-southeast-1 \
             --command-id "$COMMAND_ID" \
             --instance-id "$INSTANCE_ID"
 
+          WAITER_RC=$?
+
+          set -e
+
           aws ssm get-command-invocation \
             --region ap-southeast-1 \
             --command-id "$COMMAND_ID" \
             --instance-id "$INSTANCE_ID" \
-            --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' \
-            --output json
+            --query '{
+              Status:Status,
+              ResponseCode:ResponseCode,
+              StandardOutput:StandardOutputContent,
+              StandardError:StandardErrorContent
+            }' \
+            --output json \
+            > "$SSM_RESULT"
+
+          cat "$SSM_RESULT"
+
+          STATUS=$(jq -r '.Status' "$SSM_RESULT")
+          RESPONSE_CODE=$(jq -r '.ResponseCode' "$SSM_RESULT")
+
+          if [[ "$WAITER_RC" -ne 0 ]] || \
+             [[ "$STATUS" != "Success" ]] || \
+             [[ "$RESPONSE_CODE" != "0" ]]; then
+
+              echo "Deployment failed." >&2
+              echo "SSM status: $STATUS" >&2
+              echo "Response code: $RESPONSE_CODE" >&2
+              exit 1
+          fi
+
+          echo "Deployment succeeded for release ${SHORT_RELEASE_ID}."
