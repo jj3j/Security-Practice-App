@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="data:,">
   <title>ExamCore | Security Study App</title>
-  <link rel="stylesheet" href="/styles.css?v=17">
-  <link rel="stylesheet" href="/layout-v17.css?v=17">
-  <script src="/app.js?v=18" defer></script>
+  <link rel="stylesheet" href="/modern-midnight.css?v=1">
+  <script src="/app.js?v=19" defer></script>
 </head>
 <body>
   <div class="app" id="app">
@@ -576,6 +575,7 @@
             <span>Timer <strong id="mobileTimerMetric">--:--</strong></span>
             <span>Answered <strong id="mobileAnsweredMetric">0</strong></span>
           </div>
+          <button id="questionMapToggle" class="ghost question-map-toggle" type="button" aria-controls="questionSessionPanel" aria-expanded="false">Question map</button>
         </div>
         <div class="workspace">
           <div class="question-head">
@@ -602,7 +602,9 @@
             </div>
           </div>
         </div>
-        <aside class="side">
+        <button id="questionMapBackdrop" class="question-map-backdrop hidden" type="button" aria-label="Close question map"></button>
+        <aside id="questionSessionPanel" class="side" aria-label="Assessment session details">
+          <button id="questionMapClose" class="ghost question-map-close" type="button" aria-label="Close question map">Close</button>
           <section class="side-section">
             <p class="side-title">Session</p>
             <div class="metric-grid">

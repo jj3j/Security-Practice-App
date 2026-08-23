@@ -181,7 +181,24 @@ function showBundleSelection(mode) {
 }
 
 function showQuestionView() {
+  closeQuestionMap();
   showOnlyView("questionView");
+}
+
+function openQuestionMap() {
+  el("questionSessionPanel").classList.add("is-open");
+  el("questionMapBackdrop").classList.remove("hidden");
+  el("questionMapToggle").setAttribute("aria-expanded", "true");
+  el("questionMapClose").focus();
+}
+
+function closeQuestionMap({ restoreFocus = false } = {}) {
+  const panel = el("questionSessionPanel");
+  if (!panel) return;
+  panel.classList.remove("is-open");
+  el("questionMapBackdrop").classList.add("hidden");
+  el("questionMapToggle").setAttribute("aria-expanded", "false");
+  if (restoreFocus) el("questionMapToggle").focus();
 }
 
 function showOnlyView(viewId) {
@@ -2104,6 +2121,7 @@ function renderQuestionMap() {
     button.disabled = state.mode === "exam" && state.examStatus === "submitting";
     button.addEventListener("click", () => {
       state.index = index;
+      closeQuestionMap();
       render();
     });
     map.appendChild(button);
@@ -2572,6 +2590,9 @@ el("lessonBookmarkButton").addEventListener("click", () => {
 el("flashcardBackButton").addEventListener("click", showChapterOverview);
 el("groundedBackButton").addEventListener("click", showChapterOverview);
 el("questionBackButton").addEventListener("click", goToDashboard);
+el("questionMapToggle").addEventListener("click", openQuestionMap);
+el("questionMapClose").addEventListener("click", () => closeQuestionMap({ restoreFocus: true }));
+el("questionMapBackdrop").addEventListener("click", () => closeQuestionMap({ restoreFocus: true }));
 el("completeChapterButton").addEventListener("click", () => {
   completeChapter().catch((error) => showToast(error.message, "bad"));
 });
@@ -2613,6 +2634,9 @@ el("searchOverlay").addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !el("searchOverlay").classList.contains("hidden")) {
     closeGlobalSearch();
+  }
+  if (event.key === "Escape" && el("questionSessionPanel").classList.contains("is-open")) {
+    closeQuestionMap({ restoreFocus: true });
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
