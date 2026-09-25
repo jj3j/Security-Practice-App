@@ -57,3 +57,6 @@ tmp/
 
 # Local study content
 content/
+
+# Local gstack tooling artifacts
+.gstack/
