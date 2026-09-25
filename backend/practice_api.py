@@ -35,6 +35,7 @@ from learning_db import (
     LearnerSession,
     LearningAuthorizationError,
     LearningDataError,
+    LearningStateError,
     PendingIdentityNotFoundError,
 )
 from practice_db import PracticeDataError, QuestionRepository
@@ -322,7 +323,7 @@ class PracticeApi:
                 exc.category.value,
             )
             status, payload, extra_headers = HTTPStatus.BAD_REQUEST, {"error": "Login could not be completed."}, []
-        except (PracticeRequestError, StudyRagError) as exc:
+        except (PracticeRequestError, StudyRagError, LearningStateError) as exc:
             status, payload, extra_headers = HTTPStatus.BAD_REQUEST, {"error": str(exc)}, []
         except (PracticeDataError, LearningDataError, StudyContentError):
             LOGGER.exception(
@@ -353,6 +354,8 @@ class PracticeApi:
             "/api/logout": {"POST"},
             "/api/courses": {"GET"},
             "/api/dashboard": {"GET"},
+            "/api/study/location": {"POST"},
+            "/api/attempt-state": {"GET", "POST"},
             "/api/questions": {"GET"},
             "/api/answer": {"POST"},
             "/api/practice/start": {"POST"},
@@ -412,6 +415,9 @@ class PracticeApi:
             )
         if path == "/api/courses":
             return HTTPStatus.OK, {"courses": self._course_options(learner)}, []
+        if path == "/api/attempt-state" and method == "GET":
+            attempt_id = self._required_query_value(environ, "attempt_id", max_length=64)
+            return HTTPStatus.OK, self._active_attempt_payload(learner, attempt_id), []
         if path == "/api/dashboard":
             course_id = self._course_id_from_query(environ)
             self._require_course_access(learner, course_id)
@@ -677,6 +683,46 @@ class PracticeApi:
                 present=present,
             )
             return HTTPStatus.OK, {"present": present}, []
+        if path == "/api/study/location":
+            course_id = self._course_id_from_body(data)
+            self._require_course_access(learner, course_id)
+            if course_id not in self.study_catalogs:
+                raise PracticeRequestError("Study is not available for this course.")
+            catalog, repository = self._study_dependencies(course_id)
+            chapter_id, section_id = data.get("chapter_id"), data.get("section_id")
+            if not isinstance(chapter_id, str) or not chapter_id:
+                raise PracticeRequestError("chapter_id is required.")
+            chapter = catalog.chapter(chapter_id)
+            if chapter is None:
+                raise PracticeRequestError("Study chapter was not found.")
+            if section_id is not None and (not isinstance(section_id, str) or not any(
+                section["section_id"] == section_id for section in chapter["sections"]
+            )):
+                raise PracticeRequestError("Section does not belong to this chapter.")
+            repository.record_study_location(learner.user_id, course_id, chapter_id, section_id)
+            return HTTPStatus.OK, {"resume": self._resume_study(learner, course_id)}, []
+        if path == "/api/attempt-state":
+            if set(data) - {"attempt_id", "answers", "flags"}:
+                raise PracticeRequestError("Unsupported attempt state fields.")
+            attempt_id = data.get("attempt_id")
+            if not isinstance(attempt_id, str) or not attempt_id:
+                raise PracticeRequestError("attempt_id is required.")
+            payload = self._active_attempt_payload(learner, attempt_id)
+            course_id = payload["attempt"]["course_id"]
+            answers, flags = data.get("answers", {}), data.get("flags", {})
+            if not isinstance(answers, dict) or not isinstance(flags, dict):
+                raise PracticeRequestError("answers and flags must be objects.")
+            public = {q["question_id"]: q for q in payload["questions"]}
+            normalized = {}
+            for question_id, selected in answers.items():
+                if question_id not in public or not isinstance(selected, list):
+                    raise PracticeRequestError("Invalid question or answer list.")
+                labels = _answer_labels(selected, allow_unanswered=True)
+                if set(labels) - _choice_labels(public[question_id]):
+                    raise PracticeRequestError("Invalid choice label.")
+                normalized[question_id] = labels
+            self.learning_repository.save_attempt_state(learner.user_id, attempt_id, course_id, normalized, flags)
+            return HTTPStatus.OK, {"saved": True}, []
         progress_chapter_id = self._chapter_progress_resource_id(path)
         if progress_chapter_id is not None:
             study_course_id = self._course_id_from_body(data)
@@ -710,6 +756,14 @@ class PracticeApi:
             record = self.repository.get_question(question_id, course_id)
             if record is None:
                 raise PracticeRequestError(f"Sample question not found by id: {question_id}")
+            if question_id in self.learning_repository.protected_exam_questions(learner.user_id, course_id):
+                raise PracticeRequestError("Exam answers are available only after submission.")
+            if data.get("attempt_id"):
+                if not isinstance(data["attempt_id"], str):
+                    raise PracticeRequestError("attempt_id must be a string.")
+                owned = self.learning_repository.attempt_state(learner.user_id, data["attempt_id"])
+                if owned["attempt"]["course_id"] != course_id:
+                    raise PracticeRequestError("Attempt course does not match.")
             result = _score_question(record, data.get("selected"))
             attempt_id = data.get("attempt_id")
             if attempt_id is not None:
@@ -959,6 +1013,79 @@ class PracticeApi:
             "questions": questions,
         }
 
+    def _active_attempt_payload(self, learner: LearnerSession, attempt_id: str) -> dict[str, Any]:
+        payload = self.learning_repository.attempt_state(learner.user_id, attempt_id)
+        attempt = payload["attempt"]
+        self._require_course_access(learner, attempt["course_id"])
+        if attempt["status"] != "active":
+            raise PracticeRequestError("Assessment is no longer active; open its results.")
+        records = self.repository.get_questions_by_ids(attempt["course_id"], payload.pop("question_ids"))
+        if len(records) != attempt["question_count"]:
+            raise PracticeDataError("Attempt questions are no longer available.")
+        by_id = {record["question_id"]: record for record in records}
+        payload["questions"] = [_public_question(by_id[q]) for q in payload["answers"]]
+        payload["exam"] = self._course_config(attempt["course_id"]).exam_payload(len(records))
+        return payload
+
+    def _resume_study(self, learner: LearnerSession, course_id: str) -> dict | None:
+        catalog = self.study_catalogs.get(course_id)
+        if catalog is None:
+            return None
+        rows = self.learning_repository.list_chapter_progress(learner.user_id, course_id)
+        for row in sorted(rows, key=lambda x: (x["last_viewed_at"], x["chapter_id"]), reverse=True):
+            chapter = catalog.chapter(row["chapter_id"])
+            if chapter is None:
+                continue
+            section = next((x for x in chapter["sections"] if x["section_id"] == row["last_section_id"]), None)
+            return {"course_id": course_id, "chapter_id": chapter["chapter_id"],
+                    "section_id": section["section_id"] if section else None,
+                    "title": section["heading"] if section else chapter["title"],
+                    "chapter_title": chapter["title"], "last_viewed_at": row["last_viewed_at"]}
+        return None
+
+    def _recommended_next_step(self, learner: LearnerSession, course_id: str, metrics: dict) -> dict | None:
+        active = self.learning_repository.active_attempt(learner.user_id, course_id)
+        if active:
+            return {"action_type": "resume_assessment", "course_id": course_id, **active,
+                    "reason": "unfinished_assessment"}
+        catalog = self.study_catalogs.get(course_id)
+        if catalog:
+            progress = {r["chapter_id"]: r for r in self.learning_repository.list_chapter_progress(learner.user_id, course_id)}
+            chapters = catalog.payload["chapters"]
+            unfinished = [c for c in chapters if progress.get(c["chapter_id"], {}).get("status") == "in_progress"]
+            if unfinished:
+                chapter = max(unfinished, key=lambda c: (progress[c["chapter_id"]]["last_viewed_at"], c["chapter_id"]))
+                section_id = progress[chapter["chapter_id"]]["last_section_id"]
+                if section_id not in {x["section_id"] for x in chapter["sections"]}:
+                    section_id = None
+                return {"action_type": "open_study", "course_id": course_id,
+                        "chapter_id": chapter["chapter_id"], "section_id": section_id,
+                        "reason": "unfinished_chapter"}
+            cards = {r["flashcard_id"]: r["state"] for r in self.learning_repository.list_flashcard_progress(learner.user_id, course_id)}
+            for chapter in chapters:
+                if chapter["chapter_id"] not in progress:
+                    continue
+                for card in chapter["flashcards"]:
+                    if cards.get(card["flashcard_id"]) != "mastered":
+                        return {"action_type": "open_flashcards", "course_id": course_id,
+                                "chapter_id": chapter["chapter_id"], "flashcard_id": card["flashcard_id"],
+                                "reason": "unmastered_flashcards"}
+        config = self._course_config(course_id)
+        count = self.repository.available_projects().get(course_id, 0)
+        if config.practice_available and count and (metrics["average_score"] is None or metrics["average_score"] < config.passing_score_percent):
+            bundles = config.practice_bundles(count)
+            return {"action_type": "start_practice", "course_id": course_id,
+                    "bundle_id": bundles[0]["bundle_id"] if bundles else None,
+                    "reason": "missing_performance" if metrics["average_score"] is None else "weak_performance"}
+        if catalog:
+            for chapter in catalog.payload["chapters"]:
+                if progress.get(chapter["chapter_id"], {}).get("status") != "completed":
+                    return {"action_type": "open_study", "course_id": course_id,
+                            "chapter_id": chapter["chapter_id"], "section_id": None, "reason": "next_chapter"}
+        if config.exam_available and count:
+            return {"action_type": "choose_exam", "course_id": course_id, "reason": "next_pathway"}
+        return None
+
     def _dashboard_payload(
         self, learner: LearnerSession, course_id: str
     ) -> dict[str, Any]:
@@ -1000,6 +1127,8 @@ class PracticeApi:
                 "bookmark_count": sum(item["item_type"] == "lesson" for item in items),
                 "review_count": sum(item["item_type"] == "question" for item in items),
             },
+            "resume": self._resume_study(learner, course_id),
+            "recommended_next_step": self._recommended_next_step(learner, course_id, assessment_metrics),
             "recent_attempts": attempts,
             "items": self._enrich_learner_items(course_id, items),
         }
@@ -1695,10 +1824,18 @@ class PracticeApi:
         attempt_id: str | None,
     ) -> dict[str, Any]:
         if attempt_id:
-            question_ids = self.learning_repository.exam_attempt_question_ids(learner.user_id, attempt_id)
+            snapshot = self.learning_repository.attempt_state(learner.user_id, attempt_id)
+            if snapshot["attempt"]["course_id"] != course_id or snapshot["attempt"]["assessment_kind"] != "exam":
+                raise PracticeRequestError("Attempt course or assessment kind does not match.")
+            if snapshot["attempt"]["status"] != "active":
+                raise PracticeRequestError("Exam attempt has already been submitted.")
+            question_ids = snapshot["question_ids"]
             records = self.repository.get_questions_by_ids(course_id, question_ids)
+            answers = {**snapshot["answers"], **answers}
         else:
             records = self.repository.load_questions(course_id)
+            if self.learning_repository.protected_exam_questions(learner.user_id, course_id):
+                raise PracticeRequestError("Submit the active exam before requesting scores.")
         records_by_id = {record["question_id"]: record for record in records}
         results: list[dict[str, Any]] = []
         correct_count = 0

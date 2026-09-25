@@ -128,6 +128,7 @@
             <h2 id="dashboardNextStepHeading">Choose your next pathway</h2>
             <p>Build knowledge in Study or test readiness in Examination.</p>
           </div>
+          <button id="recommendedStepButton" class="primary hidden" type="button">Continue</button>
           <button id="openPathwayChoiceButton" class="primary" type="button">Choose pathway</button>
         </section>
       </section>
@@ -598,6 +599,8 @@
             </div>
             <div class="action-group">
               <button id="submitAnswer" class="primary" type="button">Submit Answer</button>
+              <span id="attemptSaveStatus" class="muted" role="status" aria-live="polite"></span>
+              <button id="flagQuestion" class="ghost hidden" type="button" aria-pressed="false">Flag for review</button>
               <button id="finishExam" class="danger hidden" type="button">Finish Exam</button>
             </div>
           </div>

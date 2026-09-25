@@ -47,6 +47,20 @@ The existing question database remains immutable and read-only at runtime.
 The project-aware JSONL index is also read-only and supplies chapter-scoped
 grounded evidence. Only identity and progress records are written to the
 learner database.
+
+The learner database schema in this repository is version `5`. Startup
+migrates versions `1`-`4` forward in place, checking column presence before
+each addition, so repeated initialization is safe and no learner record is
+recreated. Version `5` adds nullable `chapter_progress.last_section_id` and
+`attempt_questions.flagged`, which is how exact Study resume and exam flags are
+persisted. The endpoints, autosave, deadline, and disclosure rules for that
+learner state are specified in
+[`docs/LEARNER_STATE_API.md`](docs/LEARNER_STATE_API.md).
+
+The migration runs automatically on service start, so a deployed instance
+moves to version `5` the first time it loads this code. No production
+migration has been performed yet for this change.
+
 Initialize learner state and bootstrap the first exact OpenID Connect owner with:
 
 ```bash
@@ -173,6 +187,21 @@ python scripts\validate_repo.py
 python -m unittest discover -s tests -v
 python -m compileall backend scripts
 ```
+
+The frontend behavior tests need Node and are not run by GitHub Actions, so run
+them locally:
+
+```powershell
+node --test tests\test_frontend_state.js
+node --check frontend\app.js
+```
+
+`tests/test_frontend_state.js` loads the production `frontend/app.js` source and
+runs the real handlers in a VM, so it covers save ordering, error visibility,
+Study resume, attempt restoration, and recommendation dispatch without a
+browser or network. It is not rendered-browser evidence; see
+[`docs/LEARNER_STATE_API.md`](docs/LEARNER_STATE_API.md) for what each
+verification layer does and does not establish.
 
 ## GitHub Actions and EC2
 
