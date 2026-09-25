@@ -47,7 +47,11 @@ const state = {
   currentResults: null,
   resultFilter: "all",
   lastAssessment: null,
-  searchResults: []
+  searchResults: [],
+  attemptFlags: {},
+  saveQueue: Promise.resolve(),
+  studySaveQueue: Promise.resolve(),
+  saveFailed: false
 };
 
 const el = (id) => document.getElementById(id);
@@ -302,7 +306,7 @@ function renderDashboard() {
     : "Not available for this course";
   el("studyPathwayCard").classList.toggle("unavailable", !course.study_available);
   el("dashboardStudyBtn").disabled = !course.study_available;
-  el("dashboardStudyBtn").textContent = course.study_available ? "Enter study module" : "Study unavailable";
+  el("dashboardStudyBtn").textContent = state.dashboard?.resume ? "Resume study" : course.study_available ? "Enter study module" : "Study unavailable";
   const assessmentAvailable = Boolean(course.practice_available || course.exam_available);
   el("examPathwayCard").classList.toggle("unavailable", !assessmentAvailable);
   el("dashboardExamPathBtn").disabled = !assessmentAvailable;
@@ -355,8 +359,15 @@ function renderDashboardInsights() {
     el("dashboardAssessmentMetric").textContent = "—";
     el("dashboardAverageMetric").textContent = "—";
     el("dashboardReviewMetric").textContent = "—";
+    el("recommendedStepButton").classList.add("hidden");
     return;
   }
+  const next = dashboard.recommended_next_step;
+  const labels = { resume_assessment: "Resume assessment", open_study: "Continue study",
+    open_flashcards: "Review flashcards", start_practice: "Start practice", choose_exam: "Choose exam" };
+  el("recommendedStepButton").classList.toggle("hidden", !next);
+  el("recommendedStepButton").textContent = labels[next?.action_type] || "Continue";
+  if (dashboard.resume) el("dashboardStudyBtn").textContent = "Resume study";
   const metrics = dashboard.metrics || {};
   const unitLabels = studyUnitLabels();
   if (metrics.chapter_total) {
@@ -389,10 +400,10 @@ function renderDashboardInsights() {
     const action = document.createElement("button");
     action.type = "button";
     action.className = "ghost";
-    action.textContent = "Review";
-    action.disabled = attempt.status !== "submitted";
+    action.textContent = attempt.status === "active" ? "Resume" : "Review";
+    action.disabled = !["active", "submitted"].includes(attempt.status);
     action.addEventListener("click", () => {
-      loadAttemptDetail(attempt.attempt_id).catch((error) => showToast(error.message, "bad"));
+      (attempt.status === "active" ? restoreAttempt(attempt.attempt_id) : loadAttemptDetail(attempt.attempt_id)).catch((error) => showToast(error.message, "bad"));
     });
     row.append(details, action);
     attemptList.appendChild(row);
@@ -1290,12 +1301,15 @@ function renderChapters() {
   }
 }
 
-async function openChapter(chapterId) {
+async function openChapter(chapterId, { recordLocation = true } = {}) {
   const isCurrentChapter = state.currentChapter?.chapter_id === chapterId;
   const payload = await api(
     `/api/study/chapters/${encodeURIComponent(chapterId)}?course_id=${encodeURIComponent(state.selectedCourseId)}`
   );
   state.currentChapter = payload.chapter;
+  if (recordLocation) {
+    recordStudyLocation(null).catch((error) => showToast(`Study location was not saved: ${error.message}`, "bad"));
+  }
   if (!isCurrentChapter) state.lessonIndex = 0;
   state.flashcardIndex = payload.chapter.resume_flashcard_index || 0;
   state.flashcardRevealed = false;
@@ -1590,6 +1604,7 @@ function openLesson(index = state.lessonIndex) {
   state.lessonIndex = Math.max(0, Math.min(lessons.length - 1, index));
   renderLesson();
   showOnlyView("lessonView");
+  recordStudyLocation(currentLesson().section_id).catch((error) => showToast(`Study location was not saved: ${error.message}`, "bad"));
 }
 
 function renderLesson() {
@@ -1896,6 +1911,9 @@ async function setMode(mode) {
   state.practiceResults = {};
   state.index = 0;
   state.attemptId = null;
+  state.attemptFlags = {};
+  state.saveFailed = false;
+  el("attemptSaveStatus").textContent = "";
   clearTimer();
   state.examStatus = "idle";
 
@@ -1933,6 +1951,7 @@ async function setMode(mode) {
 
   el("submitAnswer").textContent = mode === "exam" ? "Save Answer" : "Submit Answer";
   el("finishExam").classList.toggle("hidden", mode !== "exam");
+  el("flagQuestion").classList.toggle("hidden", mode !== "exam");
 
   showQuestionView();
   render();
@@ -2023,6 +2042,9 @@ function render() {
   el("nextQuestion").disabled = examSubmitting || state.index >= state.questions.length - 1;
   el("submitAnswer").disabled = examSubmitting || examCompleted || practiceAnswered;
   el("finishExam").disabled = examSubmitting || examCompleted;
+  el("flagQuestion").disabled = examLocked;
+  el("flagQuestion").textContent = state.attemptFlags[question.question_id] ? "Unflag question" : "Flag for review";
+  el("flagQuestion").setAttribute("aria-pressed", String(Boolean(state.attemptFlags[question.question_id])));
   el("finishExam").textContent = examSubmitting ? "Submitting…" : examCompleted ? "Exam Completed" : "Finish Exam";
   renderTimer();
   renderMetrics();
@@ -2081,6 +2103,7 @@ function renderFeedback(question) {
   feedback.className = "feedback";
   feedback.textContent = "";
   if (!result) return;
+  if (result.restored) { feedback.textContent = "Answer saved. Results are available after completion."; return; }
 
   if (result.is_correct === true) {
     feedback.classList.add("ok");
@@ -2103,7 +2126,7 @@ function renderMetrics() {
   el("modeMetric").textContent = state.mode === "exam" ? "Exam" : "Practice";
   el("answeredMetric").textContent = `${answered}/${total}`;
   el("mobileAnsweredMetric").textContent = `${answered}/${total}`;
-  const graded = Object.values(state.practiceResults).filter((result) => result.is_correct !== null);
+  const graded = Object.values(state.practiceResults).filter((result) => typeof result.is_correct === "boolean");
   const correct = graded.filter((result) => result.is_correct === true).length;
   el("scoreMetric").textContent = graded.length ? `${Math.round((correct / graded.length) * 100)}%` : "0%";
 }
@@ -2117,7 +2140,8 @@ function renderQuestionMap() {
     if (index === state.index) button.classList.add("current");
     if ((state.answers[question.question_id] || []).length) button.classList.add("answered");
     button.type = "button";
-    button.textContent = String(index + 1);
+    button.textContent = `${index + 1}${state.attemptFlags[question.question_id] ? " [flag]" : ""}`;
+    button.setAttribute("aria-label", `Question ${index + 1}${state.attemptFlags[question.question_id] ? ", flagged for review" : ""}`);
     button.disabled = state.mode === "exam" && state.examStatus === "submitting";
     button.addEventListener("click", () => {
       state.index = index;
@@ -2154,6 +2178,9 @@ function saveSelection() {
   if (!question) return;
   const checked = [...document.querySelectorAll("input[name='choice']:checked")].map((input) => input.value);
   state.answers[question.question_id] = checked;
+  if (state.mode === "exam" && Date.now() < state.deadline) {
+    queueAttemptSave({ answers: { [question.question_id]: checked } });
+  }
   renderMetrics();
   renderQuestionMap();
 }
@@ -2166,11 +2193,17 @@ async function submitAnswer() {
   saveSelection();
   const question = currentQuestion();
   const selected = selectedLabels(question);
-  if (!selected.length) {
+  if (!selected.length && state.mode !== "exam") {
     showToast("Choose at least one answer first.", "neutral");
     return;
   }
   if (state.mode === "exam") {
+    await state.saveQueue;
+    if (state.saveFailed && Date.now() < state.deadline) {
+      state.saveFailed = false;
+      await queueAttemptSave({ answers: state.answers, flags: state.attemptFlags });
+    }
+    if (state.saveFailed) return;
     if (state.index < state.questions.length - 1) {
       state.index += 1;
     }
@@ -2225,6 +2258,7 @@ async function finishExam() {
   }
 
   try {
+    await state.saveQueue;
     const result = await api("/api/score", {
       method: "POST",
       body: JSON.stringify({ course_id: state.selectedCourseId, attempt_id: state.attemptId, answers })
@@ -2518,7 +2552,7 @@ async function logout() {
 /* ============================================================
    EVENT LISTENERS
    ============================================================ */
-el("dashboardStudyBtn").addEventListener("click", openStudy);
+el("dashboardStudyBtn").addEventListener("click", () => resumeStudy().catch((error) => showToast(error.message, "bad")));
 el("sidebarSubjectsButton").addEventListener("click", showCourseSelection);
 el("sidebarDashboardButton").addEventListener("click", goToDashboard);
 el("sidebarStudyButton").addEventListener("click", openStudy);
@@ -2674,4 +2708,100 @@ el("logoutButton").addEventListener("click", () => {
 bootstrap().catch((error) => {
   el("questionText").textContent = "Could not load questions";
   showToast(error.message, "bad");
+});
+
+async function recordStudyLocation(sectionId) {
+  const body = JSON.stringify({ course_id: state.selectedCourseId,
+    chapter_id: state.currentChapter.chapter_id, section_id: sectionId });
+  const save = state.studySaveQueue.then(() => api("/api/study/location", { method: "POST", body }));
+  state.studySaveQueue = save.catch(() => {});
+  return save;
+}
+
+async function resumeStudy() {
+  const resume = state.dashboard?.resume;
+  if (!resume) return openStudy();
+  await openChapter(resume.chapter_id, { recordLocation: false });
+  if (resume.section_id) {
+    const index = state.currentChapter.sections.findIndex((s) => s.section_id === resume.section_id);
+    if (index >= 0) return openLesson(index);
+  }
+  await recordStudyLocation(null);
+}
+
+function queueAttemptSave(update) {
+  const attemptId = state.attemptId;
+  const body = JSON.stringify({ attempt_id: attemptId, ...update });
+  el("attemptSaveStatus").textContent = "Saving...";
+  state.saveQueue = state.saveQueue.then(() => api("/api/attempt-state", {
+    method: "POST", body
+  })).then(() => {
+    if (state.attemptId === attemptId) el("attemptSaveStatus").textContent = state.saveFailed
+      ? "Some changes are unsaved. Use Save Answer to retry." : "Saved";
+  }).catch((error) => {
+    if (state.attemptId === attemptId) {
+      state.saveFailed = true;
+      el("attemptSaveStatus").textContent = "Changes unsaved. Use Save Answer to retry.";
+    }
+    showToast(`Changes were not saved: ${error.message}`, "bad");
+  });
+  return state.saveQueue;
+}
+
+async function restoreAttempt(attemptId) {
+  await state.saveQueue;
+  const payload = await api(`/api/attempt-state?attempt_id=${encodeURIComponent(attemptId)}`);
+  if (payload.attempt.course_id !== state.selectedCourseId) throw new Error("Select this attempt's course first.");
+  clearTimer();
+  state.attemptId = attemptId;
+  state.saveFailed = false;
+  el("attemptSaveStatus").textContent = "Restored";
+  state.mode = payload.attempt.assessment_kind;
+  state.questions = payload.questions;
+  state.answers = payload.answers;
+  state.attemptFlags = payload.flags;
+  state.practiceResults = state.mode === "practice" ? Object.fromEntries(
+    Object.entries(payload.answers).filter(([, a]) => a.length).map(([id, selected]) => [id, { selected, restored: true }])
+  ) : {};
+  const unanswered = state.questions.findIndex((q) => !state.answers[q.question_id]?.length);
+  state.index = Math.max(0, unanswered);
+  state.payload = { ...state.payload, exam: payload.exam };
+  state.examStatus = state.mode === "exam" ? "active" : "idle";
+  state.deadline = new Date(payload.attempt.deadline_at).getTime();
+  el("submitAnswer").textContent = state.mode === "exam" ? "Save Answer" : "Submit Answer";
+  el("finishExam").classList.toggle("hidden", state.mode !== "exam");
+  el("flagQuestion").classList.toggle("hidden", state.mode !== "exam");
+  if (state.mode === "exam") state.timerId = window.setInterval(renderTimer, 1000);
+  showQuestionView();
+  render();
+}
+
+async function followRecommendation() {
+  const next = state.dashboard?.recommended_next_step;
+  if (!next || next.course_id !== state.selectedCourseId) return;
+  if (next.action_type === "resume_assessment") return restoreAttempt(next.attempt_id);
+  if (next.action_type === "choose_exam") return showBundleSelection("exam");
+  if (next.action_type === "start_practice") return startSession("practice", next.bundle_id);
+  await openChapter(next.chapter_id, { recordLocation: false });
+  if (next.action_type === "open_flashcards") {
+    state.flashcardIndex = Math.max(0, state.currentChapter.flashcards.findIndex((c) => c.flashcard_id === next.flashcard_id));
+    return openFlashcards();
+  }
+  if (next.section_id) {
+    const index = state.currentChapter.sections.findIndex((s) => s.section_id === next.section_id);
+    if (index >= 0) return openLesson(index);
+  }
+  await recordStudyLocation(null);
+}
+
+el("flagQuestion").addEventListener("click", () => {
+  if (state.mode !== "exam" || state.examStatus !== "active" || Date.now() >= state.deadline) return;
+  const id = currentQuestion().question_id;
+  state.attemptFlags[id] = !state.attemptFlags[id];
+  queueAttemptSave({ flags: { [id]: state.attemptFlags[id] } });
+  render();
+});
+
+el("recommendedStepButton").addEventListener("click", () => {
+  followRecommendation().catch((error) => showToast(error.message, "bad"));
 });

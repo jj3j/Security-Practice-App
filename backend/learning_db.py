@@ -12,8 +12,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
-SCHEMA_VERSION = "4"
-PREVIOUS_SCHEMA_VERSIONS = frozenset({"1", "2", "3"})
+SCHEMA_VERSION = "5"
+PREVIOUS_SCHEMA_VERSIONS = frozenset({"1", "2", "3", "4"})
 DEFAULT_ADMIN_PAGE_SIZE = 50
 MAX_ADMIN_PAGE_SIZE = 100
 MAX_PENDING_IDENTITIES = 1000
@@ -35,6 +35,10 @@ ALLOWED_ADMIN_ACTIONS = frozenset(
 
 class LearningDataError(RuntimeError):
     """Raised when learner state cannot be validated or persisted."""
+
+
+class LearningStateError(LearningDataError):
+    """Invalid or unavailable learner state requested by a client."""
 
 
 class LearningAuthorizationError(PermissionError):
@@ -383,6 +387,14 @@ def initialize_learning_database(database_path: Path) -> None:
                 """
             )
 
+            for table, column, declaration in (
+                ("chapter_progress", "last_section_id", "TEXT"),
+                ("attempt_questions", "flagged", "INTEGER NOT NULL DEFAULT 0 CHECK (flagged IN (0, 1))"),
+            ):
+                columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")}
+                if column not in columns:
+                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
             attempt_columns = {
                 str(row[1]) for row in connection.execute("PRAGMA table_info(exam_attempts)")
             }
@@ -471,7 +483,7 @@ class LearningRepository:
             try:
                 rows = connection.execute(
                     """
-                    SELECT chapter_id, status, last_viewed_at, completed_at
+                    SELECT chapter_id, status, last_viewed_at, completed_at, last_section_id
                     FROM chapter_progress
                     WHERE user_id = ? AND course_id = ?
                     ORDER BY chapter_id
@@ -483,6 +495,7 @@ class LearningRepository:
         return [
             {
                 "chapter_id": str(row["chapter_id"]),
+                "last_section_id": row["last_section_id"],
                 "status": str(row["status"]),
                 "last_viewed_at": str(row["last_viewed_at"]),
                 "completed_at": (
@@ -491,6 +504,89 @@ class LearningRepository:
             }
             for row in rows
         ]
+
+    def record_study_location(self, user_id: str, course_id: str, chapter_id: str,
+                              section_id: str | None) -> None:
+        user_id = _required_text(user_id, "user_id", max_length=64)
+        course_id = _required_text(course_id, "course_id", max_length=255)
+        chapter_id = _required_text(chapter_id, "chapter_id", max_length=128)
+        if section_id is not None:
+            section_id = _required_text(section_id, "section_id", max_length=128)
+        with closing(_connect(self.database_path)) as connection, connection:
+            connection.execute(
+                """INSERT INTO chapter_progress
+                   (user_id, course_id, chapter_id, status, last_viewed_at, last_section_id)
+                   VALUES (?, ?, ?, 'in_progress', ?, ?)
+                   ON CONFLICT(user_id, course_id, chapter_id) DO UPDATE SET
+                   last_viewed_at=excluded.last_viewed_at, last_section_id=excluded.last_section_id""",
+                (user_id, course_id, chapter_id, _utc_now(), section_id),
+            )
+
+    def active_attempt(self, user_id: str, course_id: str) -> dict | None:
+        with closing(_connect(self.database_path)) as connection:
+            row = connection.execute(
+                """SELECT attempt_id, assessment_kind FROM exam_attempts
+                   WHERE user_id=? AND course_id=? AND status='active'
+                   ORDER BY started_at DESC, attempt_id DESC LIMIT 1""", (user_id, course_id)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def protected_exam_questions(self, user_id: str, course_id: str) -> set[str]:
+        with closing(_connect(self.database_path)) as connection:
+            return {row[0] for row in connection.execute(
+                """SELECT q.question_id FROM attempt_questions q JOIN exam_attempts e
+                   ON e.attempt_id=q.attempt_id WHERE e.user_id=? AND e.course_id=?
+                   AND e.status='active' AND e.assessment_kind='exam'""", (user_id, course_id))}
+
+    def attempt_state(self, user_id: str, attempt_id: str) -> dict:
+        with closing(_connect(self.database_path)) as connection, connection:
+            connection.execute("BEGIN")
+            row = connection.execute(
+                """SELECT attempt_id, course_id, mode, assessment_kind, content_version,
+                   status, started_at, deadline_at, question_count FROM exam_attempts
+                   WHERE user_id=? AND attempt_id=?""", (user_id, attempt_id)).fetchone()
+            if row is None:
+                raise LearningStateError("Assessment attempt was not found.")
+            attempt = dict(row)
+            rows = connection.execute(
+                """SELECT q.question_id, q.flagged, a.selected_json FROM attempt_questions q
+                   LEFT JOIN attempt_answers a ON a.attempt_id=q.attempt_id AND a.question_id=q.question_id
+                   WHERE q.attempt_id=? ORDER BY q.position""", (attempt_id,)).fetchall()
+        return {"attempt": attempt,
+                "question_ids": [r["question_id"] for r in rows],
+                "answers": {r["question_id"]: json.loads(r["selected_json"]) if r["selected_json"] else [] for r in rows},
+                "flags": {r["question_id"]: bool(r["flagged"]) for r in rows},
+                "deadline_passed": datetime.fromisoformat(attempt["deadline_at"]) <= datetime.now(UTC)}
+
+    def save_attempt_state(self, user_id: str, attempt_id: str, course_id: str,
+                           answers: dict[str, list[str]], flags: dict[str, bool]) -> None:
+        if not isinstance(answers, dict) or not isinstance(flags, dict):
+            raise LearningStateError("answers and flags must be objects.")
+        if any(not isinstance(v, list) or any(not isinstance(x, str) for x in v) for v in answers.values()):
+            raise LearningStateError("answers must contain lists of choice labels.")
+        if any(not isinstance(v, bool) for v in flags.values()):
+            raise LearningStateError("flags must contain booleans.")
+        with closing(_connect(self.database_path)) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT status, deadline_at, assessment_kind FROM exam_attempts WHERE user_id=? AND attempt_id=? AND course_id=?",
+                (user_id, attempt_id, course_id)).fetchone()
+            if row is None:
+                raise LearningStateError("Assessment attempt was not found.")
+            if row["status"] != "active" or row["assessment_kind"] != "exam":
+                raise LearningStateError("An active exam attempt is required.")
+            if datetime.fromisoformat(row["deadline_at"]) <= datetime.now(UTC):
+                raise LearningStateError("Exam deadline has passed; submit the attempt.")
+            valid = {r[0] for r in connection.execute("SELECT question_id FROM attempt_questions WHERE attempt_id=?", (attempt_id,))}
+            if (set(answers) | set(flags)) - valid:
+                raise LearningStateError("Question is outside this attempt.")
+            connection.executemany(
+                """INSERT INTO attempt_answers(attempt_id, question_id, selected_json, answered_at, is_correct)
+                   VALUES (?, ?, ?, ?, NULL) ON CONFLICT(attempt_id, question_id) DO UPDATE SET
+                   selected_json=excluded.selected_json, answered_at=excluded.answered_at, is_correct=NULL""",
+                [(attempt_id, q, json.dumps(v), _utc_now()) for q, v in answers.items()])
+            connection.executemany("UPDATE attempt_questions SET flagged=? WHERE attempt_id=? AND question_id=?",
+                                   [(int(v), attempt_id, q) for q, v in flags.items()])
 
     def set_chapter_progress(
         self,

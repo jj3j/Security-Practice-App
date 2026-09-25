@@ -5,6 +5,29 @@ This repository targets the existing Ubuntu EC2 deployment at
 `/api/`, and `/auth/` to Gunicorn at `127.0.0.1:8765`. The service remains
 `gdsa-practice.service` and runs as `gdsa-practice`.
 
+## Public routing through Cloudflare Tunnel
+
+`study.querytm.com` routes through the existing Cloudflare Tunnel `whalebot`
+(tunnel ID `468dcf5e-006a-4f87-a778-e61f9dfd15e9`). In
+`/etc/cloudflared/config.yml`, the Study App origin is:
+
+```text
+http://127.0.0.1:80
+```
+
+Port `8765` is the Gunicorn backend only; direct requests to it return
+`{"error":"Endpoint not found."}`. Nginx listens on port `80`, serves the
+Study App frontend, and proxies backend traffic to `127.0.0.1:8765`.
+
+The public URL is working at `https://study.querytm.com`. The cloudflared
+service is enabled and active.
+
+Preserve the existing WhaleBot route exactly:
+
+```text
+whale.querytm.com -> http://127.0.0.1:8766
+```
+
 Do not configure the GitHub EC2 secrets yet. First validate this checked-in
 contract and the one-time `current` migration procedure against the instance.
 Server provisioning and migration are deliberate administrative operations;
